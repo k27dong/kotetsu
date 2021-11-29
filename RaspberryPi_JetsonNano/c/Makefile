@@ -25,6 +25,7 @@ else ifeq ($(USELIB_RPI), USE_WIRINGPI_LIB)
 else ifeq ($(USELIB_RPI), USE_DEV_LIB)
     LIB_RPI += -lm
 endif
+
 DEBUG_RPI = -D $(USELIB_RPI) -D RPI
 
 USELIB_JETSONI = USE_DEV_LIB

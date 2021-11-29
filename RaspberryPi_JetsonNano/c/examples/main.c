@@ -1,8 +1,10 @@
 ﻿#include <stdlib.h>     //exit()
 #include <signal.h>     //signal()
-#include "EPD_Test.h"   //Examples
+#include <time.h>
+#include "EPD_Test.h"
+#include "EPD_2in7.h"
 
-void Handler (int signo) {
+void sigint_handler(int signo) {
   //System Exit
   printf("\r\nHandler:exit\r\n");
   DEV_Module_Exit();
@@ -10,20 +12,28 @@ void Handler (int signo) {
   exit(0);
 }
 
+void err_handler(int signo) {
+  screen_shutdown();
+  exit(0);
+}
+
+void cleanup(UBYTE* img) {
+  free(img);
+  img = NULL;
+}
+
 int main(void) {
-  signal(SIGINT, Handler);
+  signal(SIGINT, sigint_handler);
 
-  EPD_2in7_test();
+  screen_init();
 
-  // if(DEV_Module_Init()!=0){
-  //   return -1;
-  // }
-	// while(1) {
-  //   EPD_7in5b_V2_test();
-	// 	DEV_Delay_ms(10000);
-	// }
-	// DEV_Module_Exit();
+  UBYTE* image;
 
+  gen_image(image);
+
+  cleanup(image);
+
+  screen_shutdown();
 
   return 0;
 }
