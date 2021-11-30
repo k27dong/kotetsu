@@ -37,11 +37,19 @@
 #include "Debug.h"
 #include <stdlib.h> // malloc() free()
 
+typedef struct Date {
+  int d, m, y;
+} Date;
+
+int get_diff(Date dt1, Date dt2);
+int count_leap_years(Date d);
 
 int EPD_2in7_test(void);
 
 int screen_init(void);
 int screen_shutdown(void);
 int gen_image(UBYTE*);
+
+int fetch_weather(void);
 
 #endif

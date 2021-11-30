@@ -17,7 +17,7 @@ USELIB_RPI = USE_BCM2835_LIB
 # USELIB_RPI = USE_WIRINGPI_LIB
 # USELIB_RPI = USE_DEV_LIB
 
-LIB_RPI=-Wl,--gc-sections
+LIB_RPI=-Wl,--gc-sections,-lcurl
 ifeq ($(USELIB_RPI), USE_BCM2835_LIB)
     LIB_RPI += -lbcm2835 -lm
 else ifeq ($(USELIB_RPI), USE_WIRINGPI_LIB)

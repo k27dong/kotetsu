@@ -72,6 +72,7 @@ int gen_image(UBYTE* image) {
     tm.tm_sec
   );
 
+  /* calculate full date */
   char full_date[20];
   char temp_date[2];
   sprintf(temp_date, "%d", tm.tm_mday);
@@ -79,9 +80,24 @@ int gen_image(UBYTE* image) {
   strcat(full_date, ", ");
   strcat(full_date, temp_date);
 
+  /* calculate weekday */
   int weekday_num = calc_weekday(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
-  char weekday[3];
+  char weekday[3] = "";
   strcat(weekday, day_arr[weekday_num - 1]);
+
+  /* calculate days since */
+  char days_since[4];
+  Date d_now = {tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900};
+  Date d_begin = {1, 9, 2021};
+  int days_since_num = get_diff(d_begin, d_now);
+  sprintf(days_since, "%d", days_since_num);
+
+  /* calculate temperature */
+  int temperature_num = fetch_weather();
+  char temperature[5];
+  sprintf(temperature, "%d", temperature_num);
+
+  /******************* DRAW BEGIN *******************/
 
   Paint_NewImage(image, EPD_2IN7_WIDTH, EPD_2IN7_HEIGHT, 270, WHITE);
 
@@ -93,20 +109,22 @@ int gen_image(UBYTE* image) {
   Paint_DrawLine(184, 2, 184, 40, BLACK, DOT_PIXEL_2X2, LINE_STYLE_SOLID);
 
   /* date */
-  Paint_DrawString_EN(80, 20, full_date, &Font20, WHITE, BLACK);
+  Paint_DrawString_EN(82, 20, full_date, &Font20, WHITE, BLACK);
 
   /* day */
   Paint_DrawString_EN(110, 0, weekday, &Font20, WHITE, BLACK);
 
   /* temperature */
-  Paint_DrawString_EN(2, 10, "2000", &Font24, WHITE, BLACK);
+  Paint_DrawString_EN(40 - strlen(temperature) * 10, 10, temperature, &Font24, WHITE, BLACK);
 
   /* day since */
-  Paint_DrawString_EN(190, 10, "2000", &Font24, WHITE, BLACK);
+  Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24, WHITE, BLACK);
 
   /* phrase */
+  Paint_DrawString_CN(10, 50, "电子", &Font12CN, WHITE, BLACK);
 
   EPD_2IN7_Display(image);
+
   return 0;
 }
 
