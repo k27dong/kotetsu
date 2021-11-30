@@ -121,7 +121,7 @@ int gen_image(UBYTE* image) {
   Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24, WHITE, BLACK);
 
   /* phrase */
-  Paint_DrawString_CN(10, 50, "ÁîµÂ≠ê", &Font12CN, WHITE, BLACK);
+  Paint_DrawString_CN(10, 50, "ƒ„∫√ ˜›Æ≈…", &Font12CN, BLACK, WHITE);
 
   EPD_2IN7_Display(image);
 
