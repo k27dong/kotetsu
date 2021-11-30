@@ -121,7 +121,13 @@ int gen_image(UBYTE* image) {
   Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24, WHITE, BLACK);
 
   /* phrase */
-  Paint_DrawString_CN(10, 50, "你好树莓派", &Font12CN, BLACK, WHITE);
+  // char* cn_phrase = "萧瑟的风雨中等待我的心情";
+  Paint_DrawString_CN(10, 50, "当田野还有百合，", &Font12CN, BLACK, WHITE);
+  Paint_DrawString_CN(10, 70, "天空还有鸟群", &Font12CN, BLACK, WHITE);
+  Paint_DrawString_CN(10, 90, "当你还有一张大弓、满袋好箭", &Font12CN, BLACK, WHITE);
+  Paint_DrawString_CN(10, 110, "该忘记的早就忘记", &Font12CN, BLACK, WHITE);
+  Paint_DrawString_CN(10, 130, "该留下的永远留下", &Font12CN, BLACK, WHITE);
+  // Paint_DrawString_CN(10, 150, "这个世界上居然有如此众多的绿色", &Font12CN, BLACK, WHITE);
 
   EPD_2IN7_Display(image);
 
