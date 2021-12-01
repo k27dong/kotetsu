@@ -118,7 +118,7 @@ int gen_image(UBYTE* image) {
   phrase_data = (char*) malloc(phrase_len);
 
   /* construct url */
-  char url[200] = "http://192.168.50.176:5000/api/get_phrase?";
+  char url[200] = "http://kefan.me/api/get_phrase?";
   char holder[20] = "";
 
   sprintf(holder, "temp=%d&", temperature_num);
@@ -134,6 +134,7 @@ int gen_image(UBYTE* image) {
 
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, phrase_writer);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
 
   struct curl_slist *headers = NULL;
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -170,6 +171,7 @@ int gen_image(UBYTE* image) {
   /* day since */
   Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24, WHITE, BLACK);
 
+  /* phrase */
   int v_counter = 0;
   char* token = strtok(sanitized_data, "\n");
 
@@ -183,37 +185,6 @@ int gen_image(UBYTE* image) {
     token = strtok(NULL, "\n");
     v_counter++;
   }
-
-  /* phrase */
-  // if (lang == 'c') {
-  //   int i = 0;
-  //   char * token = strtok(sanitized_data, "\n");
-
-  //   while( token != NULL ) {
-  //     Paint_DrawString_CN(10, 50 + i * 20, token, &Font12CN, BLACK, WHITE);
-  //     token = strtok(NULL, "\n");
-  //     i++;
-  //   }
-  // }
-
-  // if (lang == 'e') {
-  //   int i = 0;
-  //   char * token = strtok(sanitized_data, "\n");
-
-  //   while( token != NULL ) {
-  //     Paint_DrawString_EN(10, 50 + i * 20, token, &Font12, WHITE, BLACK);
-  //     token = strtok(NULL, "\n");
-  //     i++;
-  //   }
-  // }
-
-  // Paint_DrawString_CN(10, 50, sanitized_data, &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 50, "我听到传来的谁的声音", &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 70, "像那梦里呜咽中的小河", &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 90, "我看到远去的谁的步伐", &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 110, "遮住告别时哀伤的眼神", &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 130, "就像早已忘情的世界 ", &Font12CN, BLACK, WHITE);
-  // Paint_DrawString_CN(10, 150, "曾经拥有你的名字我的声音", &Font12CN, BLACK, WHITE);
 
   EPD_2IN7_Display(image);
   curl_easy_cleanup(curl);
