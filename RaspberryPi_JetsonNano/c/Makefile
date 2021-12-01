@@ -5,11 +5,15 @@ DIR_GUI      = ./lib/GUI
 DIR_Examples = ./examples
 DIR_BIN      = ./bin
 
+TARGET = epd
+CC = gcc
+MSG = -g -O -ffunction-sections -fdata-sections -Wall
+CFLAGS += $(MSG)
+
 OBJ_C = $(wildcard ${DIR_EPD}/*.c ${DIR_GUI}/*.c ${DIR_Examples}/*.c ${DIR_FONTS}/*.c )
 OBJ_O = $(patsubst %.c,${DIR_BIN}/%.o,$(notdir ${OBJ_C}))
 RPI_DEV_C = $(wildcard $(DIR_BIN)/dev_hardware_SPI.o $(DIR_BIN)/RPI_sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
 JETSON_DEV_C = $(wildcard $(DIR_BIN)/sysfs_software_spi.o $(DIR_BIN)/sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
-
 
 DEBUG = -D DEBUG
 
@@ -19,11 +23,11 @@ USELIB_RPI = USE_BCM2835_LIB
 
 LIB_RPI=-Wl,--gc-sections,-lcurl
 ifeq ($(USELIB_RPI), USE_BCM2835_LIB)
-    LIB_RPI += -lbcm2835 -lm
+	LIB_RPI += -lbcm2835 -lm
 else ifeq ($(USELIB_RPI), USE_WIRINGPI_LIB)
-    LIB_RPI += -lwiringPi -lm
+	LIB_RPI += -lwiringPi -lm
 else ifeq ($(USELIB_RPI), USE_DEV_LIB)
-    LIB_RPI += -lm
+	LIB_RPI += -lm
 endif
 
 DEBUG_RPI = -D $(USELIB_RPI) -D RPI
@@ -31,21 +35,18 @@ DEBUG_RPI = -D $(USELIB_RPI) -D RPI
 USELIB_JETSONI = USE_DEV_LIB
 # USELIB_JETSONI = USE_HARDWARE_LIB
 ifeq ($(USELIB_JETSONI), USE_DEV_LIB)
-    LIB_JETSONI = -lm
+	LIB_JETSONI = -lm
 else ifeq ($(USELIB_JETSONI), USE_HARDWARE_LIB)
-    LIB_JETSONI = -lm
+	LIB_JETSONI = -lm
 endif
+
 DEBUG_JETSONI = -D $(USELIB_JETSONI) -D JETSON
 
 .PHONY : RPI JETSON clean
 
-RPI:RPI_DEV RPI_epd
-JETSON: JETSON_DEV JETSON_epd
+RPI: RPI_DEV RPI_epd
 
-TARGET = epd
-CC = gcc
-MSG = -g -O -ffunction-sections -fdata-sections -Wall
-CFLAGS += $(MSG)
+JETSON: JETSON_DEV JETSON_epd
 
 RPI_epd:${OBJ_O}
 	echo $(@)

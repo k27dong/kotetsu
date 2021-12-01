@@ -1,5 +1,4 @@
 #include "EPD_Test.h"
-#include <curl/curl.h>
 
 #define BUFFER_SIZE  (256 * 1024)
 

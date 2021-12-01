@@ -36,6 +36,7 @@
 #include "ImageData.h"
 #include "Debug.h"
 #include <stdlib.h> // malloc() free()
+#include <curl/curl.h>
 
 typedef struct Date {
   int d, m, y;
@@ -51,5 +52,7 @@ int screen_shutdown(void);
 int gen_image(UBYTE*);
 
 int fetch_weather(void);
+
+char* fetch_word(int, int, int, int, int);
 
 #endif
