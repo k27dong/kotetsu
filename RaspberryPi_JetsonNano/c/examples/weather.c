@@ -1,4 +1,4 @@
-#include "EPD_Test.h"
+#include "basic.h"
 
 #define BUFFER_SIZE  (256 * 1024)
 

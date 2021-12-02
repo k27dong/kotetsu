@@ -1,6 +1,6 @@
-#include "EPD_Test.h"
+#include "basic.h"
 
-const int month_days[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+const static int month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 int count_leap_years(Date d) {
   int years = d.y;
@@ -24,6 +24,7 @@ int get_diff(Date dt1, Date dt2) {
   for (int i = 0; i < dt2.m - 1; i++) {
     n2 += month_days[i];
   }
+
   n2 += count_leap_years(dt2);
 
   return (n2 - n1);

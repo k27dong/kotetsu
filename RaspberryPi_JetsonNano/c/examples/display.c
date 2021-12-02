@@ -1,6 +1,7 @@
-#include "EPD_Test.h"
-#include "EPD_2in7.h"
 #include <time.h>
+
+#include "basic.h"
+#include "EPD_2in7.h"
 
 #define HEIGHT EPD_2IN7_WIDTH
 #define WIDTH EPD_2IN7_HEIGHT
@@ -44,7 +45,7 @@ int screen_shutdown(void) {
 }
 
 int screen_init(void) {
-  if(DEV_Module_Init()!=0){
+  if (DEV_Module_Init()!=0) {
     return -1;
   }
 

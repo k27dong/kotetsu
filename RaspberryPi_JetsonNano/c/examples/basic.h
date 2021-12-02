@@ -27,16 +27,16 @@
 # THE SOFTWARE.
 #
 ******************************************************************************/
-#ifndef _EPD_TEST_H_
-#define _EPD_TEST_H_
+#ifndef _BASIC_H_
+#define _BASIC_H_
+
+#include <stdlib.h>
+#include <curl/curl.h>
 
 #include "DEV_Config.h"
 #include "GUI_Paint.h"
 #include "GUI_BMPfile.h"
-#include "ImageData.h"
 #include "Debug.h"
-#include <stdlib.h> // malloc() free()
-#include <curl/curl.h>
 
 typedef struct Date {
   int d, m, y;
@@ -45,14 +45,10 @@ typedef struct Date {
 int get_diff(Date dt1, Date dt2);
 int count_leap_years(Date d);
 
-int EPD_2in7_test(void);
-
 int screen_init(void);
 int screen_shutdown(void);
 int gen_image(UBYTE*);
 
 int fetch_weather(void);
-
-char* fetch_word(int, int, int, int, int);
 
 #endif

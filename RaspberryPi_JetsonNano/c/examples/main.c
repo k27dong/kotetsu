@@ -1,11 +1,11 @@
 ﻿#include <stdlib.h>     //exit()
 #include <signal.h>     //signal()
 #include <time.h>
-#include "EPD_Test.h"
+
+#include "basic.h"
 #include "EPD_2in7.h"
 
 void sigint_handler(int signo) {
-  //System Exit
   printf("\r\nHandler:exit\r\n");
   DEV_Module_Exit();
 
