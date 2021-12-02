@@ -15,7 +15,7 @@ OBJ_O = $(patsubst %.c,${DIR_BIN}/%.o,$(notdir ${OBJ_C}))
 RPI_DEV_C = $(wildcard $(DIR_BIN)/dev_hardware_SPI.o $(DIR_BIN)/RPI_sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
 JETSON_DEV_C = $(wildcard $(DIR_BIN)/sysfs_software_spi.o $(DIR_BIN)/sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
 
-DEBUG = -D DEBUG
+# DEBUG = -D DEBUG
 
 USELIB_RPI = USE_BCM2835_LIB
 # USELIB_RPI = USE_WIRINGPI_LIB
