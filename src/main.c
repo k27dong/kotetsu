@@ -1,5 +1,7 @@
-﻿#include <stdlib.h>     //exit()
-#include <signal.h>     //signal()
+﻿#pragma GCC diagnostic ignored "-Wuninitialized"
+
+#include <stdlib.h>
+#include <signal.h>
 #include <time.h>
 
 #include "basic.h"

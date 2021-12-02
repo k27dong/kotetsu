@@ -2,7 +2,7 @@ DIR_Config   = ./lib/config
 DIR_EPD      = ./lib/epd
 DIR_FONTS    = ./lib/fonts
 DIR_GUI      = ./lib/gui
-DIR_SRC = ./src
+DIR_SRC      = ./src
 DIR_BIN      = ./bin
 
 TARGET = kotetsu
