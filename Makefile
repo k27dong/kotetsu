@@ -49,7 +49,6 @@ RPI: RPI_DEV RPI_epd
 JETSON: JETSON_DEV JETSON_epd
 
 RPI_epd:${OBJ_O}
-	echo $(@)
 	$(CC) $(CFLAGS) -D RPI $(OBJ_O) $(RPI_DEV_C) -o $(TARGET) $(LIB_RPI) $(DEBUG)
 
 JETSON_epd:${OBJ_O}
