@@ -1,11 +1,11 @@
-DIR_Config   = ./lib/Config
-DIR_EPD      = ./lib/e-Paper
-DIR_FONTS    = ./lib/Fonts
-DIR_GUI      = ./lib/GUI
-DIR_Examples = ./examples
+DIR_Config   = ./lib/config
+DIR_EPD      = ./lib/epd
+DIR_FONTS    = ./lib/fonts
+DIR_GUI      = ./lib/gui
+DIR_Examples = ./src
 DIR_BIN      = ./bin
 
-TARGET = epd
+TARGET = kotetsu
 CC = gcc
 MSG = -g -O -ffunction-sections -fdata-sections -Wall
 CFLAGS += $(MSG)
