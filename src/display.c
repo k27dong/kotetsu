@@ -87,6 +87,7 @@ int gen_image(UBYTE* image) {
   /* calculate full date */
   char full_date[20];
   char temp_date[2];
+  memset(full_date, '\0', sizeof(char)*20);
   sprintf(temp_date, "%d", tm.tm_mday);
   strcat(full_date, month[tm.tm_mon]);
   strcat(full_date, ", ");
