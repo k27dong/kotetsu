@@ -27,13 +27,13 @@ const static char* month[] = {
 };
 
 const static char* day_arr[] = {
+  "SUN",
   "MON",
   "TUE",
   "WED",
   "THU",
   "FRI",
-  "SAT",
-  "SUN"
+  "SAT"
 };
 
 int screen_shutdown(void) {
@@ -53,10 +53,6 @@ int screen_init(void) {
   EPD_2IN7_Clear();
 
   return 0;
-}
-
-int calc_weekday(int y, int m, int d) {
-  return (d += m < 3 ? y-- : y - 2, 23*m/9 + d + 4 + y/4- y/100 + y/400)%7;
 }
 
 size_t phrase_writer(char *buf, size_t size, size_t items, void* ptr) {
@@ -94,9 +90,8 @@ int gen_image(UBYTE* image) {
   strcat(full_date, temp_date);
 
   /* calculate weekday */
-  int weekday_num = calc_weekday(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
   char weekday[4] = "";
-  strcat(weekday, day_arr[weekday_num - 1]);
+  strcat(weekday, day_arr[tm.tm_wday]);
 
   /* calculate days since */
   char days_since[5];
