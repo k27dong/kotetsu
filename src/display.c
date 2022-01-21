@@ -101,7 +101,9 @@ int gen_image(UBYTE* image) {
   sprintf(days_since, "%d", days_since_num);
 
   /* calculate temperature */
-  int temperature_num = fetch_weather();
+  // int temperature_num = fetch_weather();
+  fetch_weather();
+  int temperature_num = 20;
   char temperature[5];
   sprintf(temperature, "%d", temperature_num);
 
@@ -115,19 +117,17 @@ int gen_image(UBYTE* image) {
   phrase_data = (char*) malloc(phrase_len);
 
   /* construct url */
-  char url[200] = "http://kefan.me/api/get_phrase?";
-  char holder[20] = "";
-
-  sprintf(holder, "temp=%d&", temperature_num);
-  strcat(url, holder);
-  sprintf(holder, "y=%d&", tm.tm_year + 1900);
-  strcat(url, holder);
-  sprintf(holder, "m=%d&", tm.tm_mon + 1);
-  strcat(url, holder);
-  sprintf(holder, "d=%d&", tm.tm_mday);
-  strcat(url, holder);
-  sprintf(holder, "days=%d", days_since_num);
-  strcat(url, holder);
+  char url[200];
+  snprintf(
+    url,
+    sizeof(url),
+    "http://kefan.me/api/get_phrase?temp=%d&y=%d&m=%d&d=%d&days=%d",
+    temperature_num,
+    tm.tm_year + 1900,
+    tm.tm_mon + 1,
+    tm.tm_mday,
+    days_since_num
+  );
 
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, phrase_writer);
@@ -140,8 +140,9 @@ int gen_image(UBYTE* image) {
 
   if (res != CURLE_OK) return -1;
 
-  char* sanitized_data = strstr(phrase_data, "8FJ20GMV");
-  memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
+  // char* sanitized_data = strstr(phrase_data, "8FJ20GMV");
+  // memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
+  char* sanitized_data = "≤‚ ‘≤‚ ‘";
 
   char lang = *sanitized_data <= 0x7F ? 'e' : 'c';
 
