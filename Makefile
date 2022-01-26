@@ -1,6 +1,7 @@
 DIR_CONFIG   = ./lib/config
 DIR_EPD      = ./lib/epd
 DIR_FONTS    = ./lib/fonts
+DIR_JSON		 = ./lib/json
 DIR_GUI      = ./lib/gui
 DIR_SRC      = ./src
 DIR_BIN      = ./bin
@@ -10,7 +11,7 @@ CC = gcc
 MSG = -g -O -ffunction-sections -fdata-sections -Wall
 CFLAGS += $(MSG)
 
-OBJ_C = $(wildcard ${DIR_EPD}/*.c ${DIR_GUI}/*.c ${DIR_SRC}/*.c ${DIR_FONTS}/*.c )
+OBJ_C = $(wildcard ${DIR_EPD}/*.c ${DIR_GUI}/*.c ${DIR_SRC}/*.c ${DIR_FONTS}/*.c  ${DIR_JSON}/*.c)
 OBJ_O = $(patsubst %.c,${DIR_BIN}/%.o,$(notdir ${OBJ_C}))
 RPI_DEV_C = $(wildcard $(DIR_BIN)/dev_hardware_SPI.o $(DIR_BIN)/RPI_sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
 JETSON_DEV_C = $(wildcard $(DIR_BIN)/sysfs_software_spi.o $(DIR_BIN)/sysfs_gpio.o $(DIR_BIN)/DEV_Config.o )
@@ -58,12 +59,15 @@ JETSON_epd:${OBJ_O}
 $(shell mkdir -p $(DIR_BIN))
 
 ${DIR_BIN}/%.o:$(DIR_SRC)/%.c
-	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) -I $(DIR_GUI) -I $(DIR_EPD) $(DEBUG)
+	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) -I $(DIR_GUI) -I $(DIR_EPD) -I $(DIR_JSON) $(DEBUG)
 
 ${DIR_BIN}/%.o:$(DIR_EPD)/%.c
 	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) $(DEBUG)
 
 ${DIR_BIN}/%.o:$(DIR_FONTS)/%.c
+	$(CC) $(CFLAGS) -c  $< -o $@ $(DEBUG)
+
+${DIR_BIN}/%.o:$(DIR_JSON)/%.c
 	$(CC) $(CFLAGS) -c  $< -o $@ $(DEBUG)
 
 ${DIR_BIN}/%.o:$(DIR_GUI)/%.c
