@@ -1,7 +1,7 @@
 DIR_CONFIG   = ./lib/config
 DIR_EPD      = ./lib/epd
 DIR_FONTS    = ./lib/fonts
-DIR_JSON		 = ./lib/json
+DIR_JSON     = ./lib/json
 DIR_GUI      = ./lib/gui
 DIR_SRC      = ./src
 DIR_BIN      = ./bin
