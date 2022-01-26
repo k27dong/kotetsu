@@ -11,6 +11,7 @@ wip
 Update (recommended)
 ```bash
 sudo apt update
+
 sudo apt upgrade
 ```
 
