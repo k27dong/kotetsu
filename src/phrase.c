@@ -1,7 +1,7 @@
 #include "basic.h"
 
-char* fetch_phrase(char* url) {
-  CURL* curl;
+char *fetch_phrase(char *url) {
+  CURL *curl;
   CURLcode res;
 
   if (!(curl = curl_easy_init())) return NULL;

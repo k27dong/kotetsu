@@ -1,7 +1,5 @@
 #include "basic.h"
 
-const static int month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
 int count_leap_years(Date d) {
   int years = d.y;
 

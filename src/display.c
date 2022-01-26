@@ -1,23 +1,23 @@
 #include <time.h>
 
-#include "basic.h"
 #include "EPD_2in7.h"
+#include "basic.h"
 
 #define HEIGHT EPD_2IN7_WIDTH
 #define WIDTH EPD_2IN7_HEIGHT
 #define IMG_SIZE EPD_2IN7_WIDTH / 8 * EPD_2IN7_HEIGHT
-#define BUFFER_SIZE  (256 * 1024)
+#define BUFFER_SIZE (256 * 1024)
 
 int screen_shutdown(void) {
   EPD_2IN7_Sleep();
-  DEV_Delay_ms(2000);//important, at least 2s
+  DEV_Delay_ms(2000);  // important, at least 2s
   DEV_Module_Exit();
 
   return 0;
 }
 
 int screen_init(void) {
-  if (DEV_Module_Init()!=0) {
+  if (DEV_Module_Init() != 0) {
     return -1;
   }
 
@@ -27,8 +27,8 @@ int screen_init(void) {
   return 0;
 }
 
-int gen_image(UBYTE* image) {
-  if((image = (UBYTE *) malloc(IMG_SIZE)) == NULL) {
+int gen_image(UBYTE *image) {
+  if ((image = (UBYTE *)malloc(IMG_SIZE)) == NULL) {
     printf("Failed to apply for background memory...\r\n");
     return 0;
   }
@@ -42,7 +42,8 @@ int gen_image(UBYTE* image) {
   struct tm tm = *localtime(&t);
 
   /* calculate full date */
-  snprintf(full_date, sizeof(full_date), "%s, %d", month[tm.tm_mon], tm.tm_mday);
+  snprintf(full_date, sizeof(full_date), "%s, %d", month[tm.tm_mon],
+           tm.tm_mday);
 
   /* calculate weekday */
   strcat(weekday, day_arr[tm.tm_wday]);
@@ -59,18 +60,12 @@ int gen_image(UBYTE* image) {
   sprintf(temperature, "%d", temperature_num);
 
   /* fetch phrase */
-  snprintf(
-    url,
-    sizeof(url),
-    "http://kefan.me/api/get_phrase?temp=%d&y=%d&m=%d&d=%d&days=%d",
-    temperature_num,
-    tm.tm_year + 1900,
-    tm.tm_mon + 1,
-    tm.tm_mday,
-    days_since_num
-  );
+  snprintf(url, sizeof(url),
+           "http://kefan.me/api/get_phrase?temp=%d&y=%d&m=%d&d=%d&days=%d",
+           temperature_num, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+           days_since_num);
 
-  char* sanitized_data = strstr(fetch_phrase(url), "8FJ20GMV");
+  char *sanitized_data = strstr(fetch_phrase(url), "8FJ20GMV");
   memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
 
   char lang = *sanitized_data <= 0x7F ? 'e' : 'c';
@@ -93,21 +88,24 @@ int gen_image(UBYTE* image) {
   Paint_DrawString_EN(110, 0, weekday, &Font20, WHITE, BLACK);
 
   /* temperature */
-  Paint_DrawString_EN(40 - strlen(temperature) * 10, 10, temperature, &Font24, WHITE, BLACK);
+  Paint_DrawString_EN(40 - strlen(temperature) * 10, 10, temperature, &Font24,
+                      WHITE, BLACK);
 
   /* day since */
-  Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24, WHITE, BLACK);
+  Paint_DrawString_EN(260 - strlen(days_since) * 18, 10, days_since, &Font24,
+                      WHITE, BLACK);
 
   /* phrase */
   int v_counter = 0;
-  char* token = strtok(sanitized_data, "\n");
+  char *token = strtok(sanitized_data, "\n");
 
-  while( token != NULL ) {
+  while (token != NULL) {
     if (lang == 'c') {
-      Paint_DrawString_CN(10, 50 + v_counter * 20, token, &Font12CN, BLACK, WHITE);
-    }
-    else if (lang == 'e') {
-      Paint_DrawString_EN(10, 50 + v_counter * 20, token, &Font16, WHITE, BLACK);
+      Paint_DrawString_CN(10, 50 + v_counter * 20, token, &Font12CN, BLACK,
+                          WHITE);
+    } else if (lang == 'e') {
+      Paint_DrawString_EN(10, 50 + v_counter * 20, token, &Font16, WHITE,
+                          BLACK);
     }
     token = strtok(NULL, "\n");
     v_counter++;
@@ -117,4 +115,3 @@ int gen_image(UBYTE* image) {
 
   return 0;
 }
-

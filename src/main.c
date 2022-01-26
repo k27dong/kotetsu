@@ -1,11 +1,11 @@
 ﻿#pragma GCC diagnostic ignored "-Wuninitialized"
 
-#include <stdlib.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <time.h>
 
-#include "basic.h"
 #include "EPD_2in7.h"
+#include "basic.h"
 
 void sigint_handler(int signo) {
   printf("\r\nHandler:exit\r\n");
@@ -19,7 +19,7 @@ void err_handler(int signo) {
   exit(0);
 }
 
-void cleanup(UBYTE* img) {
+void cleanup(UBYTE *img) {
   free(img);
   img = NULL;
 }
@@ -29,7 +29,7 @@ int main(void) {
 
   screen_init();
 
-  UBYTE* image;
+  UBYTE *image;
 
   gen_image(image);
 
