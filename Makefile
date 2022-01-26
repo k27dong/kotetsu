@@ -8,7 +8,7 @@ DIR_BIN      = ./bin
 
 TARGET = kotetsu
 CC = gcc
-MSG = -g -O -ffunction-sections -fdata-sections -Wall
+MSG = -g -O -ffunction-sections -fdata-sections -Wall -Wno-unused-variable
 CFLAGS += $(MSG)
 
 OBJ_C = $(wildcard ${DIR_EPD}/*.c ${DIR_GUI}/*.c ${DIR_SRC}/*.c ${DIR_FONTS}/*.c  ${DIR_JSON}/*.c)
