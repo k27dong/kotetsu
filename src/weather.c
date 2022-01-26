@@ -24,7 +24,19 @@ int fetch_weather(void) {
 
   if (res != CURLE_OK) return -1;
 
+  cJSON* j_total = NULL;
+  cJSON* j_main = NULL;
+
+  j_total = cJSON_Parse(s.ptr);
+  j_main = cJSON_GetObjectItem(j_total, "main");
+
+  if (j_main) {
+    cJSON *j_key = j_main->child;
+    temperature = j_key->valueint;
+  }
+
   free(s.ptr);
+  cJSON_Delete(j_total);
   curl_easy_cleanup(curl);
 
   return temperature;

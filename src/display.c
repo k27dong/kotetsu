@@ -68,31 +68,18 @@ int gen_image(UBYTE* image) {
     return 0;
   }
 
+  char full_date[20];
+  char weekday[4] = "";
+  char temperature[5];
+  char url[200];
+
   time_t t = time(NULL);
   struct tm tm = *localtime(&t);
-  printf(
-    "now: %d-%02d-%02d %02d:%02d:%02d\n",
-    tm.tm_year + 1900,
-    tm.tm_mon + 1,
-    tm.tm_mday,
-    tm.tm_hour,
-    tm.tm_min,
-    tm.tm_sec
-  );
 
   /* calculate full date */
-  char full_date[20];
   snprintf(full_date, sizeof(full_date), "%s, %d", month[tm.tm_mon], tm.tm_mday);
 
-  // char temp_date[2];
-  // memset(full_date, '\0', sizeof(char)*20);
-  // sprintf(temp_date, "%d", tm.tm_mday);
-  // strcat(full_date, month[tm.tm_mon]);
-  // strcat(full_date, ", ");
-  // strcat(full_date, temp_date);
-
   /* calculate weekday */
-  char weekday[4] = "";
   strcat(weekday, day_arr[tm.tm_wday]);
 
   /* calculate days since */
@@ -103,10 +90,7 @@ int gen_image(UBYTE* image) {
   sprintf(days_since, "%d", days_since_num);
 
   /* calculate temperature */
-  // int temperature_num = fetch_weather();
-  fetch_weather();
-  int temperature_num = 20;
-  char temperature[5];
+  int temperature_num = fetch_weather();
   sprintf(temperature, "%d", temperature_num);
 
   /* fetch phrase */
@@ -119,7 +103,6 @@ int gen_image(UBYTE* image) {
   phrase_data = (char*) malloc(phrase_len);
 
   /* construct url */
-  char url[200];
   snprintf(
     url,
     sizeof(url),
@@ -142,9 +125,8 @@ int gen_image(UBYTE* image) {
 
   if (res != CURLE_OK) return -1;
 
-  // char* sanitized_data = strstr(phrase_data, "8FJ20GMV");
-  // memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
-  char* sanitized_data = "≤‚ ‘≤‚ ‘";
+  char* sanitized_data = strstr(phrase_data, "8FJ20GMV");
+  memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
 
   char lang = *sanitized_data <= 0x7F ? 'e' : 'c';
 

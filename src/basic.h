@@ -16,6 +16,7 @@ typedef struct wb_string {
 #include "DEV_Config.h"
 #include "GUI_Paint.h"
 #include "GUI_BMPfile.h"
+#include "cJSON.h"
 #include "Debug.h"
 #include "secret.h"
 
