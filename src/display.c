@@ -8,34 +8,6 @@
 #define IMG_SIZE EPD_2IN7_WIDTH / 8 * EPD_2IN7_HEIGHT
 #define BUFFER_SIZE  (256 * 1024)
 
-char* phrase_data;
-size_t phrase_len;
-
-const static char* month[] = {
-  "JAN",
-  "FEB",
-  "MAR",
-  "APR",
-  "MAY",
-  "JUN",
-  "JUL",
-  "AUG",
-  "SEP",
-  "OCT",
-  "NOV",
-  "DEC"
-};
-
-const static char* day_arr[] = {
-  "SUN",
-  "MON",
-  "TUE",
-  "WED",
-  "THU",
-  "FRI",
-  "SAT"
-};
-
 int screen_shutdown(void) {
   EPD_2IN7_Sleep();
   DEV_Delay_ms(2000);//important, at least 2s
@@ -53,13 +25,6 @@ int screen_init(void) {
   EPD_2IN7_Clear();
 
   return 0;
-}
-
-size_t phrase_writer(char *buf, size_t size, size_t items, void* ptr) {
-  phrase_len = phrase_len + (size * items);
-  phrase_data = (char *) realloc(phrase_data, phrase_len);
-  strcat(phrase_data, buf);
-  return size * items;
 }
 
 int gen_image(UBYTE* image) {
@@ -94,15 +59,6 @@ int gen_image(UBYTE* image) {
   sprintf(temperature, "%d", temperature_num);
 
   /* fetch phrase */
-  CURL* curl;
-  CURLcode res;
-
-  curl = curl_easy_init();
-
-  phrase_len = 10;
-  phrase_data = (char*) malloc(phrase_len);
-
-  /* construct url */
   snprintf(
     url,
     sizeof(url),
@@ -114,18 +70,7 @@ int gen_image(UBYTE* image) {
     days_since_num
   );
 
-  curl_easy_setopt(curl, CURLOPT_URL, url);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, phrase_writer);
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
-
-  struct curl_slist *headers = NULL;
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-  res = curl_easy_perform(curl);
-
-  if (res != CURLE_OK) return -1;
-
-  char* sanitized_data = strstr(phrase_data, "8FJ20GMV");
+  char* sanitized_data = strstr(fetch_phrase(url), "8FJ20GMV");
   memmove(&sanitized_data[0], &sanitized_data[8], strlen(sanitized_data) - 0);
 
   char lang = *sanitized_data <= 0x7F ? 'e' : 'c';
@@ -169,7 +114,6 @@ int gen_image(UBYTE* image) {
   }
 
   EPD_2IN7_Display(image);
-  curl_easy_cleanup(curl);
 
   return 0;
 }

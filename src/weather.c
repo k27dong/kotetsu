@@ -20,8 +20,6 @@ int fetch_weather(void) {
 
   res = curl_easy_perform(curl);
 
-  printf("%s\n", s.ptr);
-
   if (res != CURLE_OK) return -1;
 
   cJSON* j_total = NULL;
