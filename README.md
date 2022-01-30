@@ -1,6 +1,8 @@
 # kotetsu
 
-wip
+(wip)
+
+Love in the Time of Corona
 
 ## Demo
 
@@ -9,6 +11,8 @@ wip
 ![IMG_5188](https://user-images.githubusercontent.com/46537987/151684697-881ef347-b77e-42bd-8be1-c1a8f06b7331.jpg)
 
 ## Introduction
+
+E-ink Display driven by Raspberry Pi, powered by two 18650 rechargable batteries.
 
 ## Requirements
 
