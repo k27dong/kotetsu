@@ -12,7 +12,7 @@ void init_string(wb_string *s) {
   s->len = 0;
   LOG_DEBUG(MODULE_HELPER, "Allocating initial buffer (1 byte)...");
   s->ptr = malloc(s->len + 1);
-  LOG_MALLOC(MODULE_HELPER, "init_string", "s->ptr", s->ptr, s->len + 1);
+  LOG_MALLOC(MODULE_HELPER, "s->ptr", s->ptr, s->len + 1);
 
   if (s->ptr == NULL) {
     LOG_FATAL(MODULE_HELPER, "malloc() failed for initial string buffer!");

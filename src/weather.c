@@ -41,7 +41,7 @@ int fetch_weather(void) {
 
   if (res != CURLE_OK) {
     LOG_ERROR(MODULE_WEATHER, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
-    LOG_FREE(MODULE_WEATHER, "fetch_weather", "s.ptr", s.ptr);
+    LOG_FREE(MODULE_WEATHER, "s.ptr", s.ptr);
     free(s.ptr);
     curl_easy_cleanup(curl);
     LOG_EXIT(MODULE_WEATHER, -1);
@@ -62,7 +62,7 @@ int fetch_weather(void) {
     if (error_ptr != NULL) {
       LOG_ERROR(MODULE_WEATHER, "JSON error near: %.20s", error_ptr);
     }
-    LOG_FREE(MODULE_WEATHER, "fetch_weather", "s.ptr", s.ptr);
+    LOG_FREE(MODULE_WEATHER, "s.ptr", s.ptr);
     free(s.ptr);
     curl_easy_cleanup(curl);
     LOG_EXIT(MODULE_WEATHER, -1);
@@ -87,7 +87,7 @@ int fetch_weather(void) {
   }
 
   LOG_DEBUG(MODULE_WEATHER, "Cleaning up resources...");
-  LOG_FREE(MODULE_WEATHER, "fetch_weather", "s.ptr", s.ptr);
+  LOG_FREE(MODULE_WEATHER, "s.ptr", s.ptr);
   free(s.ptr);
   
   LOG_DEBUG(MODULE_WEATHER, "Deleting cJSON object...");

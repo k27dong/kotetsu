@@ -39,7 +39,7 @@ void cleanup(UBYTE *img) {
   LOG_ENTER(MODULE_MAIN);
   
   if (img != NULL) {
-    LOG_FREE(MODULE_MAIN, "cleanup", "image", img);
+    LOG_FREE(MODULE_MAIN, "image", img);
     free(img);
     img = NULL;
     LOG_DEBUG(MODULE_MAIN, "Image memory freed successfully");

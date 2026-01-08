@@ -43,7 +43,7 @@ char *fetch_phrase(char *url) {
 
   if (res != CURLE_OK) {
     LOG_ERROR(MODULE_PHRASE, "curl_easy_perform() failed: %s", curl_easy_strerror(res));
-    LOG_FREE(MODULE_PHRASE, "fetch_phrase", "s.ptr", s.ptr);
+    LOG_FREE(MODULE_PHRASE, "s.ptr", s.ptr);
     free(s.ptr);
     curl_easy_cleanup(curl);
     LOG_EXIT_PTR(MODULE_PHRASE, NULL);
