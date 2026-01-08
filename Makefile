@@ -59,7 +59,7 @@ JETSON_epd:${OBJ_O}
 $(shell mkdir -p $(DIR_BIN))
 
 ${DIR_BIN}/%.o:$(DIR_SRC)/%.c
-	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) -I $(DIR_GUI) -I $(DIR_EPD) -I $(DIR_JSON) $(DEBUG)
+	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) -I $(DIR_GUI) -I $(DIR_EPD) -I $(DIR_JSON) -I $(DIR_SRC) $(DEBUG)
 
 ${DIR_BIN}/%.o:$(DIR_EPD)/%.c
 	$(CC) $(CFLAGS) -c  $< -o $@ -I $(DIR_CONFIG) $(DEBUG)
@@ -84,6 +84,5 @@ JETSON_DEV:
 	$(CC) $(CFLAGS) $(DEBUG_JETSONI) -c  $(DIR_CONFIG)/DEV_Config.c -o $(DIR_BIN)/DEV_Config.o $(LIB_JETSONI)  $(DEBUG)
 
 clean :
-	rm $(DIR_BIN)/*.*
-	rm $(TARGET)
-
+	rm -f $(DIR_BIN)/*.o
+	rm -f $(TARGET)

@@ -95,6 +95,17 @@ parameter:
 ******************************************************************************/
 void Paint_NewImage(UBYTE *image, UWORD Width, UWORD Height, UWORD Rotate, UWORD Color)
 {
+    /* Log entry with color coding for GUI module */
+    fprintf(stderr, "\033[92m\033[1mINFO \033[0m \033[94m[GUI     ]\033[0m Paint_NewImage(image=%p, %d x %d, rotate=%d)\n",
+            (void*)image, Width, Height, Rotate);
+    fflush(stderr);
+
+    if (image == NULL) {
+        fprintf(stderr, "\033[91m\033[1mERROR\033[0m \033[94m[GUI     ]\033[0m Paint_NewImage: image pointer is NULL!\n");
+        fflush(stderr);
+        return;  /* Don't proceed with NULL image */
+    }
+
     Paint.Image = NULL;
     Paint.Image = image;
 
@@ -104,8 +115,10 @@ void Paint_NewImage(UBYTE *image, UWORD Width, UWORD Height, UWORD Rotate, UWORD
     Paint.Scale = 2;
     Paint.WidthByte = (Width % 8 == 0)? (Width / 8 ): (Width / 8 + 1);
     Paint.HeightByte = Height;
-//    printf("WidthByte = %d, HeightByte = %d\r\n", Paint.WidthByte, Paint.HeightByte);
-//    printf(" EPD_WIDTH / 8 = %d\r\n",  122 / 8);
+
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[94m[GUI     ]\033[0m WidthByte=%d, HeightByte=%d\n",
+            Paint.WidthByte, Paint.HeightByte);
+    fflush(stderr);
 
     Paint.Rotate = Rotate;
     Paint.Mirror = MIRROR_NONE;
@@ -117,6 +130,9 @@ void Paint_NewImage(UBYTE *image, UWORD Width, UWORD Height, UWORD Rotate, UWORD
         Paint.Width = Height;
         Paint.Height = Width;
     }
+
+    fprintf(stderr, "\033[92m\033[1mINFO \033[0m \033[94m[GUI     ]\033[0m Paint_NewImage complete ✓\n");
+    fflush(stderr);
 }
 
 /******************************************************************************
@@ -126,6 +142,13 @@ parameter:
 ******************************************************************************/
 void Paint_SelectImage(UBYTE *image)
 {
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[94m[GUI     ]\033[0m Paint_SelectImage(image=%p)\n", (void*)image);
+    fflush(stderr);
+
+    if (image == NULL) {
+        fprintf(stderr, "\033[91m\033[1mERROR\033[0m \033[94m[GUI     ]\033[0m Paint_SelectImage: image pointer is NULL!\n");
+        fflush(stderr);
+    }
     Paint.Image = image;
 }
 
@@ -264,6 +287,19 @@ parameter:
 ******************************************************************************/
 void Paint_Clear(UWORD Color)
 {
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[94m[GUI     ]\033[0m Paint_Clear(color=0x%04X)\n", Color);
+    fflush(stderr);
+
+    if (Paint.Image == NULL) {
+        fprintf(stderr, "\033[91m\033[1mERROR\033[0m \033[94m[GUI     ]\033[0m Paint_Clear: Paint.Image is NULL! Cannot clear.\n");
+        fflush(stderr);
+        return;
+    }
+
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[94m[GUI     ]\033[0m Clearing %d x %d bytes (scale=%d)\n",
+            Paint.WidthByte, Paint.HeightByte, Paint.Scale);
+    fflush(stderr);
+
 	if(Paint.Scale == 2 || Paint.Scale == 4){
 		for (UWORD Y = 0; Y < Paint.HeightByte; Y++) {
 			for (UWORD X = 0; X < Paint.WidthByte; X++ ) {//8 pixel =  1 byte
@@ -280,6 +316,8 @@ void Paint_Clear(UWORD Color)
 		}
 	}
 
+	fprintf(stderr, "\033[92m\033[1mINFO \033[0m \033[94m[GUI     ]\033[0m Paint_Clear complete ✓\n");
+	fflush(stderr);
 }
 
 /******************************************************************************

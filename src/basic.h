@@ -3,6 +3,7 @@
 
 #include <curl/curl.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct Date {
   int d, m, y;
@@ -18,6 +19,7 @@ typedef struct wb_string {
 #include "GUI_BMPfile.h"
 #include "GUI_Paint.h"
 #include "cJSON.h"
+#include "logger.h"
 #include "secret.h"
 
 const static char *month[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
@@ -34,7 +36,7 @@ int count_leap_years(Date d);
 
 int screen_init(void);
 int screen_shutdown(void);
-int gen_image(UBYTE *);
+int gen_image(UBYTE **);  /* Changed to pointer-to-pointer to fix memory bug */
 
 int fetch_weather(void);
 char *fetch_phrase(char *);

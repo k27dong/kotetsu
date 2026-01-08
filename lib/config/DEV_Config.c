@@ -30,6 +30,16 @@
 #include "DEV_Config.h"
 #include <fcntl.h>
 
+/* Logging macros for DEV_Config - simplified since we can't include logger.h easily */
+#define DEV_LOG_INFO(fmt, ...) \
+    fprintf(stderr, "\033[92m\033[1mINFO \033[0m \033[36m[CONFIG  ]\033[0m " fmt "\n", ##__VA_ARGS__)
+#define DEV_LOG_DEBUG(fmt, ...) \
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[36m[CONFIG  ]\033[0m " fmt "\n", ##__VA_ARGS__)
+#define DEV_LOG_ERROR(fmt, ...) \
+    fprintf(stderr, "\033[91m\033[1mERROR\033[0m \033[36m[CONFIG  ]\033[0m " fmt "\n", ##__VA_ARGS__)
+#define DEV_LOG_HW(fmt, ...) \
+    fprintf(stderr, "\033[33mHW   \033[0m 🔧 \033[36m[CONFIG  ]\033[0m " fmt "\n", ##__VA_ARGS__)
+
 /**
  * GPIO
 **/
@@ -258,24 +268,51 @@ static int DEV_Equipment_Testing(void)
 
 void DEV_GPIO_Init(void)
 {
+    DEV_LOG_DEBUG("DEV_GPIO_Init() starting...");
+    fflush(stderr);
+    
 #ifdef RPI
+    DEV_LOG_DEBUG("Setting RPI GPIO pin assignments...");
 	EPD_RST_PIN     = 17;
 	EPD_DC_PIN      = 25;
 	EPD_CS_PIN      = 8;
 	EPD_BUSY_PIN    = 24;
+	DEV_LOG_DEBUG("  RST=%d, DC=%d, CS=%d, BUSY=%d", EPD_RST_PIN, EPD_DC_PIN, EPD_CS_PIN, EPD_BUSY_PIN);
 #elif JETSON
+    DEV_LOG_DEBUG("Setting JETSON GPIO pin assignments...");
 	EPD_RST_PIN     = GPIO17;
 	EPD_DC_PIN      = GPIO25;
 	EPD_CS_PIN      = SPI0_CS0;
 	EPD_BUSY_PIN    = GPIO24;
+	DEV_LOG_DEBUG("  RST=%d, DC=%d, CS=%d, BUSY=%d", EPD_RST_PIN, EPD_DC_PIN, EPD_CS_PIN, EPD_BUSY_PIN);
 #endif
+    fflush(stderr);
 
+    DEV_LOG_DEBUG("Configuring GPIO modes...");
+    fflush(stderr);
+    
+    DEV_LOG_DEBUG("  → DEV_GPIO_Mode(RST_PIN=%d, OUTPUT)", EPD_RST_PIN);
+    fflush(stderr);
 	DEV_GPIO_Mode(EPD_RST_PIN, 1);
+	
+	DEV_LOG_DEBUG("  → DEV_GPIO_Mode(DC_PIN=%d, OUTPUT)", EPD_DC_PIN);
+	fflush(stderr);
 	DEV_GPIO_Mode(EPD_DC_PIN, 1);
+	
+	DEV_LOG_DEBUG("  → DEV_GPIO_Mode(CS_PIN=%d, OUTPUT)", EPD_CS_PIN);
+	fflush(stderr);
 	DEV_GPIO_Mode(EPD_CS_PIN, 1);
+	
+	DEV_LOG_DEBUG("  → DEV_GPIO_Mode(BUSY_PIN=%d, INPUT)", EPD_BUSY_PIN);
+	fflush(stderr);
 	DEV_GPIO_Mode(EPD_BUSY_PIN, 0);
 
+    DEV_LOG_DEBUG("Setting initial CS pin state to HIGH...");
+    fflush(stderr);
 	DEV_Digital_Write(EPD_CS_PIN, 1);
+	
+	DEV_LOG_DEBUG("DEV_GPIO_Init() completed ✓");
+	fflush(stderr);
 }
 /******************************************************************************
 function:	Module Initialize, the library and initialize the pins, SPI protocol
@@ -285,64 +322,153 @@ Info:
 UBYTE DEV_Module_Init(void)
 {
     printf("/***********************************/ \r\n");
+    DEV_LOG_INFO("Starting DEV_Module_Init()...");
+    fflush(stderr);
+    
+    DEV_LOG_DEBUG("Calling DEV_Equipment_Testing()...");
+    fflush(stderr);
 	if(DEV_Equipment_Testing() < 0) {
+	    DEV_LOG_ERROR("DEV_Equipment_Testing() failed!");
 		return 1;
 	}
+	DEV_LOG_INFO("Equipment testing passed ✓");
+	fflush(stderr);
+	
 #ifdef RPI
 #ifdef USE_BCM2835_LIB
+    DEV_LOG_INFO("Using BCM2835 library");
+    DEV_LOG_HW("Calling bcm2835_init()...");
+    fflush(stderr);
 	if(!bcm2835_init()) {
 		printf("bcm2835 init failed  !!! \r\n");
+		DEV_LOG_ERROR("bcm2835_init() failed!");
 		return 1;
 	} else {
 		printf("bcm2835 init success !!! \r\n");
+		DEV_LOG_INFO("bcm2835_init() success ✓");
 	}
+    fflush(stderr);
 
 	// GPIO Config
+	DEV_LOG_HW("Calling DEV_GPIO_Init()...");
+	fflush(stderr);
 	DEV_GPIO_Init();
+	DEV_LOG_INFO("GPIO initialized ✓");
+	fflush(stderr);
 
+    DEV_LOG_HW("Configuring SPI interface...");
+    fflush(stderr);
+    
+    DEV_LOG_DEBUG("  → bcm2835_spi_begin()");
+    fflush(stderr);
 	bcm2835_spi_begin();                                         //Start spi interface, set spi pin for the reuse function
+	
+	DEV_LOG_DEBUG("  → bcm2835_spi_setBitOrder(MSBFIRST)");
+	fflush(stderr);
 	bcm2835_spi_setBitOrder(BCM2835_SPI_BIT_ORDER_MSBFIRST);     //High first transmission
+	
+	DEV_LOG_DEBUG("  → bcm2835_spi_setDataMode(MODE0)");
+	fflush(stderr);
 	bcm2835_spi_setDataMode(BCM2835_SPI_MODE0);                  //spi mode 0
+	
+	DEV_LOG_DEBUG("  → bcm2835_spi_setClockDivider(DIV128)");
+	fflush(stderr);
 	bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_128);  //Frequency
+	
+	DEV_LOG_DEBUG("  → bcm2835_spi_chipSelect(CS0)");
+	fflush(stderr);
 	bcm2835_spi_chipSelect(BCM2835_SPI_CS0);                     //set CE0
+	
+	DEV_LOG_DEBUG("  → bcm2835_spi_setChipSelectPolarity(CS0, LOW)");
+	fflush(stderr);
 	bcm2835_spi_setChipSelectPolarity(BCM2835_SPI_CS0, LOW);     //enable cs0
+	
+	DEV_LOG_INFO("SPI interface configured ✓");
+	fflush(stderr);
 
 #elif USE_WIRINGPI_LIB
+    DEV_LOG_INFO("Using WiringPi library");
+    DEV_LOG_HW("Calling wiringPiSetupGpio()...");
+    fflush(stderr);
 	//if(wiringPiSetup() < 0)//use wiringpi Pin number table
 	if(wiringPiSetupGpio() < 0) { //use BCM2835 Pin number table
 		printf("set wiringPi lib failed	!!! \r\n");
+		DEV_LOG_ERROR("wiringPiSetupGpio() failed!");
 		return 1;
 	} else {
 		printf("set wiringPi lib success !!! \r\n");
+		DEV_LOG_INFO("wiringPiSetupGpio() success ✓");
 	}
+    fflush(stderr);
 
 	// GPIO Config
+	DEV_LOG_HW("Calling DEV_GPIO_Init()...");
+	fflush(stderr);
 	DEV_GPIO_Init();
+	DEV_LOG_INFO("GPIO initialized ✓");
+	
+	DEV_LOG_HW("Setting up SPI: wiringPiSPISetup(0, 10000000)...");
+	fflush(stderr);
 	wiringPiSPISetup(0,10000000);
+	DEV_LOG_INFO("SPI setup complete ✓");
+	fflush(stderr);
 	// wiringPiSPISetupMode(0, 32000000, 0);
 #elif USE_DEV_LIB
+    DEV_LOG_INFO("Using DEV library (sysfs)");
 	printf("Write and read /dev/spidev0.0 \r\n");
+	
+	DEV_LOG_HW("Calling DEV_GPIO_Init()...");
+	fflush(stderr);
 	DEV_GPIO_Init();
+	DEV_LOG_INFO("GPIO initialized ✓");
+	
+	DEV_LOG_HW("Calling DEV_HARDWARE_SPI_begin(\"/dev/spidev0.0\")...");
+	fflush(stderr);
 	DEV_HARDWARE_SPI_begin("/dev/spidev0.0");
+	
+	DEV_LOG_HW("Setting SPI speed to 10MHz...");
+	fflush(stderr);
     DEV_HARDWARE_SPI_setSpeed(10000000);
+    DEV_LOG_INFO("SPI configured ✓");
+    fflush(stderr);
 #endif
 
 #elif JETSON
 #ifdef USE_DEV_LIB
+    DEV_LOG_INFO("JETSON: Using DEV library");
+    DEV_LOG_HW("Calling DEV_GPIO_Init()...");
+    fflush(stderr);
 	DEV_GPIO_Init();
+	DEV_LOG_INFO("GPIO initialized ✓");
+	
 	printf("Software spi\r\n");
+	DEV_LOG_HW("Configuring software SPI...");
+	fflush(stderr);
 	SYSFS_software_spi_begin();
 	SYSFS_software_spi_setBitOrder(SOFTWARE_SPI_MSBFIRST);
 	SYSFS_software_spi_setDataMode(SOFTWARE_SPI_Mode0);
 	SYSFS_software_spi_setClockDivider(SOFTWARE_SPI_CLOCK_DIV4);
+	DEV_LOG_INFO("Software SPI configured ✓");
+	fflush(stderr);
 #elif USE_HARDWARE_LIB
+    DEV_LOG_INFO("JETSON: Using hardware library");
 	printf("Write and read /dev/spidev0.0 \r\n");
+	DEV_LOG_HW("Calling DEV_GPIO_Init()...");
+	fflush(stderr);
 	DEV_GPIO_Init();
+	DEV_LOG_INFO("GPIO initialized ✓");
+	
+	DEV_LOG_HW("Calling DEV_HARDWARE_SPI_begin()...");
+	fflush(stderr);
 	DEV_HARDWARE_SPI_begin("/dev/spidev0.0");
+	DEV_LOG_INFO("Hardware SPI initialized ✓");
+	fflush(stderr);
 #endif
 
 #endif
     printf("/***********************************/ \r\n");
+    DEV_LOG_INFO("DEV_Module_Init() completed successfully ✓");
+    fflush(stderr);
 	return 0;
 }
 

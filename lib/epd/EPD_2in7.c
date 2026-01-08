@@ -92,6 +92,14 @@
 #include "EPD_2in7.h"
 #include "Debug.h"
 
+/* EPD Logging macros */
+#define EPD_LOG_INFO(fmt, ...) \
+    fprintf(stderr, "\033[92m\033[1mINFO \033[0m \033[35m[EPD     ]\033[0m " fmt "\n", ##__VA_ARGS__)
+#define EPD_LOG_DEBUG(fmt, ...) \
+    fprintf(stderr, "\033[36mDEBUG\033[0m \033[35m[EPD     ]\033[0m " fmt "\n", ##__VA_ARGS__)
+#define EPD_LOG_HW(fmt, ...) \
+    fprintf(stderr, "\033[33mHW   \033[0m 🔧 \033[35m[EPD     ]\033[0m " fmt "\n", ##__VA_ARGS__)
+
 static const unsigned char EPD_2in7_lut_vcom_dc[] = {
     0x00	,0x00,
     0x00	,0x08	,0x00	,0x00	,0x00	,0x02,
@@ -323,8 +331,17 @@ parameter:
 ******************************************************************************/
 void EPD_2IN7_Init(void)
 {
+    EPD_LOG_INFO("EPD_2IN7_Init() starting...");
+    fflush(stderr);
+    
+    EPD_LOG_HW("Performing hardware reset...");
+    fflush(stderr);
     EPD_2in7_Reset();
+    EPD_LOG_DEBUG("Reset complete");
+    fflush(stderr);
 
+    EPD_LOG_DEBUG("Sending POWER_SETTING (0x01)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x01); // POWER_SETTING
     EPD_2in7_SendData(0x03); // VDS_EN, VDG_EN
     EPD_2in7_SendData(0x00); // VCOM_HV, VGHL_LV[1], VGHL_LV[0]
@@ -332,11 +349,15 @@ void EPD_2IN7_Init(void)
     EPD_2in7_SendData(0x2b); // VDL
     EPD_2in7_SendData(0x09); // VDHR
 
+    EPD_LOG_DEBUG("Sending BOOSTER_SOFT_START (0x06)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x06);  // BOOSTER_SOFT_START
     EPD_2in7_SendData(0x07);
     EPD_2in7_SendData(0x07);
     EPD_2in7_SendData(0x17);
 
+    EPD_LOG_DEBUG("Sending power optimization commands (0xF8)...");
+    fflush(stderr);
     // Power optimization
     EPD_2in7_SendCommand(0xF8);
     EPD_2in7_SendData(0x60);
@@ -372,20 +393,39 @@ void EPD_2IN7_Init(void)
     EPD_2in7_SendData(0x73);
     EPD_2in7_SendData(0x41);
 
+    EPD_LOG_DEBUG("Sending PARTIAL_DISPLAY_REFRESH (0x16)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x16); // PARTIAL_DISPLAY_REFRESH
     EPD_2in7_SendData(0x00);
 
+    EPD_LOG_INFO("Sending POWER_ON (0x04) - waiting for display...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x04); // POWER_ON
     EPD_2in7_ReadBusy();
+    EPD_LOG_INFO("Display powered on ✓");
+    fflush(stderr);
 
+    EPD_LOG_DEBUG("Sending PANEL_SETTING (0x00)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x00); // PANEL_SETTING
     EPD_2in7_SendData(0xAF); // KW-BF   KWR-AF    BWROTP 0f
+    
+    EPD_LOG_DEBUG("Sending PLL_CONTROL (0x30)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x30); // PLL_CONTROL
     EPD_2in7_SendData(0x3A); // 3A 100HZ   29 150Hz 39 200HZ    31 171HZ
+    
+    EPD_LOG_DEBUG("Sending VCM_DC_SETTING (0x82)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x82);  // VCM_DC_SETTING_REGISTER
     EPD_2in7_SendData(0x12);
 
+    EPD_LOG_DEBUG("Setting LUT tables...");
+    fflush(stderr);
     EPD_2in7_SetLut();
+    
+    EPD_LOG_INFO("EPD_2IN7_Init() completed ✓");
+    fflush(stderr);
 }
 
 void EPD_2IN7_Init_4Gray(void)
@@ -462,10 +502,17 @@ parameter:
 ******************************************************************************/
 void EPD_2IN7_Clear(void)
 {
+    EPD_LOG_INFO("EPD_2IN7_Clear() starting...");
+    fflush(stderr);
+    
     UWORD Width, Height;
     Width = (EPD_2IN7_WIDTH % 8 == 0)? (EPD_2IN7_WIDTH / 8 ): (EPD_2IN7_WIDTH / 8 + 1);
     Height = EPD_2IN7_HEIGHT;
+    EPD_LOG_DEBUG("Clearing area: %d x %d bytes", Width, Height);
+    fflush(stderr);
 
+    EPD_LOG_DEBUG("Sending old data (0x10)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x10);
     for (UWORD j = 0; j < Height; j++) {
         for (UWORD i = 0; i < Width; i++) {
@@ -473,6 +520,8 @@ void EPD_2IN7_Clear(void)
         }
     }
 
+    EPD_LOG_DEBUG("Sending new data (0x13)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x13);
     for (UWORD j = 0; j < Height; j++) {
         for (UWORD i = 0; i < Width; i++) {
@@ -480,8 +529,12 @@ void EPD_2IN7_Clear(void)
         }
     }
 
+    EPD_LOG_INFO("Refreshing display (0x12) - waiting...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x12);
     EPD_2in7_ReadBusy();
+    EPD_LOG_INFO("EPD_2IN7_Clear() completed ✓");
+    fflush(stderr);
 }
 
 /******************************************************************************
@@ -490,9 +543,22 @@ parameter:
 ******************************************************************************/
 void EPD_2IN7_Display(const UBYTE *Image)
 {
+    EPD_LOG_INFO("EPD_2IN7_Display() starting...");
+    fflush(stderr);
+    
+    if (Image == NULL) {
+        EPD_LOG_INFO("ERROR: Image pointer is NULL!");
+        fflush(stderr);
+        return;
+    }
+    EPD_LOG_DEBUG("Image pointer: %p", (void*)Image);
+    fflush(stderr);
+    
     UWORD Width, Height;
     Width = (EPD_2IN7_WIDTH % 8 == 0)? (EPD_2IN7_WIDTH / 8 ): (EPD_2IN7_WIDTH / 8 + 1);
     Height = EPD_2IN7_HEIGHT;
+    EPD_LOG_DEBUG("Display dimensions: %d x %d bytes", Width, Height);
+    fflush(stderr);
 
   /*  EPD_2in7_SendCommand(0x10);
     for (UWORD j = 0; j < Height; j++) {
@@ -501,14 +567,23 @@ void EPD_2IN7_Display(const UBYTE *Image)
        }
     }
 */
+    EPD_LOG_DEBUG("Sending image data (0x13)...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x13);
     for (UWORD j = 0; j < Height; j++) {
         for (UWORD i = 0; i < Width; i++) {
             EPD_2in7_SendData(Image[i + j * Width]);
         }
     }
+    EPD_LOG_DEBUG("Image data sent ✓");
+    fflush(stderr);
+    
+    EPD_LOG_INFO("Refreshing display (0x12) - waiting...");
+    fflush(stderr);
     EPD_2in7_SendCommand(0x12);
     EPD_2in7_ReadBusy();
+    EPD_LOG_INFO("EPD_2IN7_Display() completed ✓");
+    fflush(stderr);
 }
 
 void EPD_2IN7_4GrayDisplay(const UBYTE *Image)

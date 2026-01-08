@@ -1,6 +1,19 @@
-bin/
-.vscode/
-
+# Compiled binary
 kotetsu
-secret.h
-gen_cn.py
+
+# Build artifacts
+bin/
+
+# Secret configuration (API keys)
+src/secret.h
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
