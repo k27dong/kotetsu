@@ -61,7 +61,7 @@ int gen_image(UBYTE *image) {
 
   /* fetch phrase */
   snprintf(url, sizeof(url),
-           "https://kefan.me/api/get_phrase?temp=%d&y=%d&m=%d&d=%d&days=%d",
+           "https://www.kefan.me/api/get_phrase?temp=%d&y=%d&m=%d&d=%d&days=%d",
            temperature_num, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
            days_since_num);
 
