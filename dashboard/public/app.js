@@ -134,6 +134,7 @@ async function api(path, method, body) {
 function showFailure(messages, error) {
   if (!(error instanceof ApiError) || error.status === 401) throw error;
   messages.textContent = error.message;
+  messages.scrollIntoView({ block: "nearest" });
 }
 
 async function perform(button, messages, action) {
@@ -302,6 +303,9 @@ function healthRows(report, special, now) {
 async function nowPage() {
   const content = h("div");
   const trouble = h("p", { class: "error" });
+  // one node each, kept across fills, so a failure after a refill still lands on the page
+  const messages = h("p", { class: "notice" });
+  const refreshMessages = h("p", { class: "notice" });
   const view = h("section", { class: "now" }, trouble, content);
   let wall = { at: null, node: null };
   let lastLoad = 0;
@@ -328,8 +332,6 @@ async function nowPage() {
       piLastSeenAt === null
         ? "The Pi hasn't checked in yet."
         : `Pi ${online ? "online" : "offline"}, checked ${ago(piLastSeenAt, now)}.`;
-    const messages = h("p", { class: "notice" });
-    const refreshMessages = h("p", { class: "notice" });
 
     content.replaceChildren(
       h(

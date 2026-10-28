@@ -81,15 +81,17 @@ header.top nav {
 
 header.top a {
   flex-shrink: 0;
-  padding: 16px 0 13px;
-  border-bottom: 2px solid transparent;
+  min-width: 44px;
+  padding: 16px 0 15px;
   font: 600 16px/1 var(--figure);
   color: inherit;
   text-decoration: none;
 }
 
 header.top a[aria-current="page"] {
-  border-bottom-color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 14px;
 }
 
 h1 {
@@ -214,6 +216,7 @@ label.choice {
 .error,
 .notice {
   margin-top: 12px;
+  scroll-margin-top: 64px; /* clears the sticky nav when a failure scrolls into view */
 }
 
 .error {
