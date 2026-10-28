@@ -1,5 +1,7 @@
 [Unit]
 Description=kotetsu e-paper screen
+# Comitup's callback writes into /run/kotetsu, which exists only once this service has started
+Before=comitup.service
 
 [Service]
 User=kotetsu

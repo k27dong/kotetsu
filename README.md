@@ -11,7 +11,7 @@ An e-paper screen for the wall, driven by a Raspberry Pi 5. It shows a phrase, t
 
 Flash Raspberry Pi OS Lite (64-bit, trixie) with Raspberry Pi Imager, presetting the hostname, user, SSH key, home Wi-Fi and the Europe/Warsaw time zone, and attach the screen. Then, on the Pi:
 
-1. Install git with `sudo apt install git`, clone this repository and save the dashboard's `PI_KEY` secret in a file.
+1. Install git with `sudo apt update && sudo apt install git`, clone this repository and save the dashboard's `PI_KEY` secret in a file.
 2. Run `sudo pi/tools/install.sh --pi-key-file <file>`. With `--dry-run` it lists its eight steps and changes nothing.
 3. Delete the key file (the script keeps its own copy) and reboot. The `config.txt` changes (the 4K-page kernel and SPI) apply only after a reboot, and the reboot also starts `kotetsu.service`.
 

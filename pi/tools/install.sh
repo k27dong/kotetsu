@@ -128,7 +128,7 @@ step 8 "Enable the service"
 run systemctl enable kotetsu.service
 if [ -e "$SPI_DEVICE" ]; then
     run systemctl restart kotetsu.service
-    # a program that can't start (no key, no SPI, no screen) exits within a moment
+    # a program that can't start (no key, no SPI or GPIO access) exits within a moment
     run sleep 2
     run systemctl is-active --quiet kotetsu.service ||
         die "kotetsu.service isn't running, see journalctl -u kotetsu"
