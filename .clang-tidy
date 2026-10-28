@@ -32,6 +32,7 @@ Checks: >-
   readability-redundant-casting,
   readability-redundant-declaration,
   readability-redundant-function-ptr-dereference
+HeaderFilterRegex: 'src/.*\.h$'
 CheckOptions:
   misc-include-cleaner.IgnoreHeaders: >-
     .*/glib-2\.0/.*;
