@@ -13,6 +13,10 @@ BUILD ?= build
 endif
 
 SRCS := \
+	src/calendar/calendar.c \
+	src/calendar/clock.c \
+	src/calendar/lunar.c \
+	src/calendar/lunar_table.c \
 	src/log.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson

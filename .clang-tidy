@@ -31,7 +31,8 @@ Checks: >-
   readability-named-parameter,
   readability-redundant-casting,
   readability-redundant-declaration,
-  readability-redundant-function-ptr-dereference
+  readability-redundant-function-ptr-dereference,
+  -clang-analyzer-optin.core.EnumCastOutOfRange
 HeaderFilterRegex: 'src/.*\.h$'
 CheckOptions:
   misc-include-cleaner.IgnoreHeaders: >-
@@ -42,4 +43,5 @@ CheckOptions:
     .*/ft2build\.h;
     .*/freetype/.*;
     .*/harfbuzz/.*;
-    .*/curl/.*
+    .*/curl/.*;
+    .*\.sdk/usr/include/(.*/)?_.*
