@@ -13,6 +13,7 @@ BUILD ?= build
 endif
 
 SRCS := \
+	src/app.c \
 	src/calendar/calendar.c \
 	src/calendar/clock.c \
 	src/calendar/lunar.c \
@@ -30,9 +31,11 @@ SRCS := \
 	src/render/text.c \
 	src/render/wifi_qr.c \
 	src/sources/air.c \
+	src/sources/dashboard.c \
 	src/sources/http.c \
 	src/sources/warning.c \
-	src/sources/weather.c
+	src/sources/weather.c \
+	src/sources/wifi.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
