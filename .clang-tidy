@@ -32,3 +32,13 @@ Checks: >-
   readability-redundant-casting,
   readability-redundant-declaration,
   readability-redundant-function-ptr-dereference
+CheckOptions:
+  misc-include-cleaner.IgnoreHeaders: >-
+    .*/glib-2\.0/.*;
+    .*/pango-1\.0/.*;
+    .*/cairo/.*;
+    .*/fontconfig/.*;
+    .*/ft2build\.h;
+    .*/freetype/.*;
+    .*/harfbuzz/.*;
+    .*/curl/.*
