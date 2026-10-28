@@ -2,12 +2,12 @@
 
 #include <cjson/cJSON.h>
 
+#include "json.h"
 #include "log.h"
 
 bool air_parse_eaqi(const char *json, int *eaqi) {
     cJSON *root = cJSON_Parse(json);
-    const cJSON *value = cJSON_GetObjectItemCaseSensitive(
-            cJSON_GetObjectItemCaseSensitive(root, "current"), "european_aqi");
+    const cJSON *value = json_member(json_member(root, "current"), "european_aqi");
     const bool parsed = cJSON_IsNumber(value) && value->valueint >= 0;
     if (parsed) {
         *eaqi = value->valueint;

@@ -12,6 +12,7 @@
 #include "calendar/calendar.h"
 #include "calendar/clock.h"
 #include "config.h"
+#include "json.h"
 #include "log.h"
 #include "model.h"
 #include "sources/air.h"
@@ -125,10 +126,6 @@ struct weather_word weather_word_for(int wmo_code) {
     }
 }
 
-static const cJSON *member(const cJSON *object, const char *name) {
-    return cJSON_GetObjectItemCaseSensitive(object, name);
-}
-
 static bool read_degrees(const cJSON *item, int *out) {
     if (!cJSON_IsNumber(item) || item->valuedouble <= -IMPLAUSIBLE_DEGREES ||
         item->valuedouble >= IMPLAUSIBLE_DEGREES) {
@@ -149,15 +146,16 @@ static bool read_code(const cJSON *item, int *out) {
 
 bool weather_parse_open_meteo(const char *json, int64_t fetched_s, struct weather_report *out) {
     cJSON *root = cJSON_Parse(json);
-    const cJSON *daily = member(root, "daily");
+    const cJSON *daily = json_member(root, "daily");
     struct weather_report report = {.fetched_s = fetched_s};
     const bool parsed =
-            read_degrees(member(member(root, "current"), "temperature_2m"), &report.now_c) &&
-            read_degrees(cJSON_GetArrayItem(member(daily, "temperature_2m_min"), 0),
+            read_degrees(json_member(json_member(root, "current"), "temperature_2m"),
+                         &report.now_c) &&
+            read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_min"), 0),
                          &report.low_c) &&
-            read_degrees(cJSON_GetArrayItem(member(daily, "temperature_2m_max"), 0),
+            read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_max"), 0),
                          &report.high_c) &&
-            read_code(cJSON_GetArrayItem(member(daily, "weather_code"), 0), &report.code);
+            read_code(cJSON_GetArrayItem(json_member(daily, "weather_code"), 0), &report.code);
     cJSON_Delete(root);
     if (!parsed) {
         log_error("Open-Meteo's forecast lacks today's temperatures or weather code");
@@ -186,19 +184,20 @@ static bool met_code(const char *symbol, int *out) {
 bool weather_parse_met_norway(const char *json, struct civil_date today, int64_t fetched_s,
                               struct weather_report *out) {
     cJSON *root = cJSON_Parse(json);
-    const cJSON *series = member(member(root, "properties"), "timeseries");
+    const cJSON *series = json_member(json_member(root, "properties"), "timeseries");
     struct weather_report report = {.fetched_s = fetched_s, .code = -1};
     bool parsed = cJSON_IsArray(series);
     bool have_now = false;
     bool have_today = false;
     const cJSON *entry;
     cJSON_ArrayForEach(entry, series) {
-        const cJSON *data = member(entry, "data");
+        const cJSON *data = json_member(entry, "data");
         int64_t entry_s = 0;
         int degrees = 0;
-        const char *time = cJSON_GetStringValue(member(entry, "time"));
+        const char *time = cJSON_GetStringValue(json_member(entry, "time"));
         if (time == nullptr || !clock_parse_iso8601(time, &entry_s) ||
-            !read_degrees(member(member(member(data, "instant"), "details"), "air_temperature"),
+            !read_degrees(json_member(json_member(json_member(data, "instant"), "details"),
+                                      "air_temperature"),
                           &degrees)) {
             parsed = false;
             break;
@@ -213,8 +212,8 @@ bool weather_parse_met_norway(const char *json, struct civil_date today, int64_t
         report.low_c = !have_today || degrees < report.low_c ? degrees : report.low_c;
         report.high_c = !have_today || degrees > report.high_c ? degrees : report.high_c;
         have_today = true;
-        const char *symbol = cJSON_GetStringValue(
-                member(member(member(data, "next_1_hours"), "summary"), "symbol_code"));
+        const char *symbol = cJSON_GetStringValue(json_member(
+                json_member(json_member(data, "next_1_hours"), "summary"), "symbol_code"));
         if (symbol == nullptr) {
             continue;
         }
