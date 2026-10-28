@@ -10,6 +10,11 @@ RuntimeDirectory=kotetsu
 RuntimeDirectoryPreserve=yes
 StateDirectory=kotetsu
 Environment=TZ=Europe/Warsaw
+# No PrivateDevices=, ProtectClock= or ProcSubset=pid: they would hide spidev, gpiochip or /proc/net/wireless
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
 ExecStart=/usr/local/bin/kotetsu
 Restart=always
 RestartSec=5

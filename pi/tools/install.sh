@@ -30,7 +30,10 @@ run() {
 append_to_config_txt() {
     # without a final newline the new line would join the last one
     [ -z "$(tail -c 1 "$CONFIG_TXT")" ] || echo >>"$CONFIG_TXT"
-    echo "$1" >>"$CONFIG_TXT"
+    # in a model section such as [cm5] the lines would apply to that model only
+    awk 'BEGIN { all = 1 } /^\[/ { all = ($0 == "[all]") } END { exit !all }' "$CONFIG_TXT" ||
+        echo "[all]" >>"$CONFIG_TXT"
+    printf '%s\n' "$@" >>"$CONFIG_TXT"
 }
 
 dry_run=0
@@ -68,8 +71,9 @@ fi
 
 step 1 "Install packages with apt"
 run apt-get update
-run apt-get install -y build-essential pkgconf libpango1.0-dev libcairo2-dev libcjson-dev \
-    libcurl4-openssl-dev libgpiod-dev clang-format comitup curl unzip
+run apt-get install -y -o Dpkg::Options::=--force-confold build-essential pkgconf \
+    libpango1.0-dev libcairo2-dev libcjson-dev libcurl4-openssl-dev libgpiod-dev clang-format \
+    comitup curl unzip
 
 step 2 "Create the kotetsu user in gpio and spi"
 if ! id -u kotetsu >/dev/null 2>&1; then
@@ -79,20 +83,29 @@ fi
 run usermod --append --groups gpio,spi kotetsu
 
 step 3 "Set kernel=kernel8.img and dtparam=spi=on in config.txt"
+missing_lines=()
 for line in kernel=kernel8.img dtparam=spi=on; do
     if grep -qxF "$line" "$CONFIG_TXT" 2>/dev/null; then
         echo "    $line is already set"
     else
-        reboot_needed=1
-        run append_to_config_txt "$line"
+        missing_lines+=("$line")
     fi
 done
+if [ ${#missing_lines[@]} -gt 0 ]; then
+    reboot_needed=1
+    run append_to_config_txt "${missing_lines[@]}"
+fi
 
 step 4 "Download the fonts"
 run "$repo_root/pi/tools/fetch_fonts.sh" /usr/local/share/kotetsu/fonts
 
 step 5 "Build the release binary"
-run make -C "$repo_root/pi" RELEASE=1
+if [ -n "${SUDO_USER:-}" ]; then
+    # so pi/build-release/ isn't root-owned in the clone
+    run runuser -u "$SUDO_USER" -- make -C "$repo_root/pi" RELEASE=1
+else
+    run make -C "$repo_root/pi" RELEASE=1
+fi
 
 step 6 "Install the program, service, Wi-Fi callback and Comitup config"
 run make -C "$repo_root/pi" RELEASE=1 install PREFIX=/usr/local
@@ -115,6 +128,10 @@ step 8 "Enable the service"
 run systemctl enable kotetsu.service
 if [ -e "$SPI_DEVICE" ]; then
     run systemctl restart kotetsu.service
+    # a program that can't start (no key, no SPI, no screen) exits within a moment
+    run sleep 2
+    run systemctl is-active --quiet kotetsu.service ||
+        die "kotetsu.service isn't running, see journalctl -u kotetsu"
 else
     echo "    $SPI_DEVICE isn't there yet, so the service starts after the reboot"
     reboot_needed=1
