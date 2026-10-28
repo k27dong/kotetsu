@@ -3,6 +3,9 @@
 
 #include "calendar/lunar.h"
 
+const int lunar_first_year = 2025;
+const int lunar_last_year = 2060;
+
 const struct lunar_month lunar_months[] = {
         {{2024, 12, 31}, 12, false}, {{2025, 1, 29}, 1, false},   {{2025, 2, 28}, 2, false},
         {{2025, 3, 29}, 3, false},   {{2025, 4, 28}, 4, false},   {{2025, 5, 27}, 5, false},

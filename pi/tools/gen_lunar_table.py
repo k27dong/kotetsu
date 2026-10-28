@@ -7,8 +7,8 @@ from itertools import pairwise
 
 from lunar_python import LunarYear, Solar
 
-FIRST_DATE = date(2025, 1, 1)
-LAST_DATE = date(2060, 12, 31)
+FIRST_YEAR = 2025
+LAST_YEAR = 2060
 SOLAR_TERMS = (
     "小寒 大寒 立春 雨水 惊蛰 春分 清明 谷雨 立夏 小满 芒种 夏至 "
     "小暑 大暑 立秋 处暑 白露 秋分 寒露 霜降 立冬 小雪 大雪 冬至"
@@ -20,6 +20,9 @@ TABLE = """\
 #include <stddef.h>
 
 #include "calendar/lunar.h"
+
+const int lunar_first_year = {first_year};
+const int lunar_last_year = {last_year};
 
 const struct lunar_month lunar_months[] = {{
 {months}
@@ -36,7 +39,7 @@ const size_t solar_term_year_count = sizeof solar_term_years / sizeof solar_term
 
 def lunar_months() -> list[tuple[date, int, bool]]:
     months = []
-    for year in range(FIRST_DATE.year - 1, LAST_DATE.year + 2):
+    for year in range(FIRST_YEAR - 1, LAST_YEAR + 2):
         for month in LunarYear.fromYear(year).getMonthsInYear():
             start = Solar.fromJulianDay(month.getFirstJulianDay())
             start_date = date(start.getYear(), start.getMonth(), start.getDay())
@@ -52,8 +55,10 @@ def lunar_months() -> list[tuple[date, int, bool]]:
         length = (next_start - start).days
         if length not in (29, 30):
             raise ValueError(f"the month from {start} lasts {length} days")
-    first = max(i for i, (start, _, _) in enumerate(months) if start <= FIRST_DATE)
-    last = max(i for i, (start, _, _) in enumerate(months) if start <= LAST_DATE)
+    first_day = date(FIRST_YEAR, 1, 1)
+    last_day = date(LAST_YEAR, 12, 31)
+    first = max(i for i, (start, _, _) in enumerate(months) if start <= first_day)
+    last = max(i for i, (start, _, _) in enumerate(months) if start <= last_day)
     return months[first : last + 1]
 
 
@@ -79,10 +84,18 @@ def main() -> None:
     )
     terms = "\n".join(
         f"    {{{year}, {{{', '.join(str(day) for day in solar_term_days(year))}}}}},"
-        for year in range(FIRST_DATE.year, LAST_DATE.year + 1)
+        for year in range(FIRST_YEAR, LAST_YEAR + 1)
     )
     version = importlib.metadata.version("lunar_python")
-    print(TABLE.format(version=version, months=months, terms=terms))
+    print(
+        TABLE.format(
+            version=version,
+            first_year=FIRST_YEAR,
+            last_year=LAST_YEAR,
+            months=months,
+            terms=terms,
+        )
+    )
 
 
 if __name__ == "__main__":

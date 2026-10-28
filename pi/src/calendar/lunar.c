@@ -5,9 +5,6 @@
 #include "calendar/calendar.h"
 #include "model.h"
 
-static constexpr int FIRST_YEAR = 2025;
-static constexpr int LAST_YEAR = 2060;
-
 static const char *const MONTH_NAMES[] = {"正月", "二月", "三月", "四月", "五月", "六月",
                                           "七月", "八月", "九月", "十月", "冬月", "腊月"};
 
@@ -24,7 +21,7 @@ static const char *const SOLAR_TERM_NAMES[SOLAR_TERMS_PER_YEAR] = {
 };
 
 bool lunar_from_civil(struct civil_date date, struct lunar_date *out) {
-    if (date.year < FIRST_YEAR || date.year > LAST_YEAR) {
+    if (date.year < lunar_first_year || date.year > lunar_last_year) {
         return false;
     }
     const struct lunar_month *month = nullptr;
