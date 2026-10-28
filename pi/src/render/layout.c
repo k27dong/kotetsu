@@ -25,10 +25,11 @@ static constexpr double HANGING_SHIFT_EM = 0.25;
 #define LANGUAGE         "zh-cn"
 #define FEATURES         "chws"
 #define FEATURES_TABULAR "chws, tnum"
-#define GAP_PLACEHOLDER  "⁠"
+#define GAP_PLACEHOLDER  "\u2060"
 
 static constexpr gunichar GAP_PLACEHOLDER_CHAR = 0x2060;
 static const gunichar HANGING_PUNCTUATION[] = {U'。', U'，', U'！', U'？'};
+static const gunichar BREAK_PUNCTUATION[] = {U'。', U'，', U'！', U'？', U'、', U'；', U'：'};
 
 double layout_snap(double value) {
     return (double)(long)(value + 0.5);
@@ -48,7 +49,7 @@ PangoContext *layout_context_new(PangoFontMap *fonts, cairo_t *cr) {
 }
 
 // The offsets are byte offsets of the placeholders in the returned copy, not in text.
-static char *with_gap_placeholders(const char *text, size_t **offsets_out, size_t *count_out) {
+static GString *with_gap_placeholders(const char *text, size_t **offsets_out, size_t *count_out) {
     const size_t length = strlen(text);
     size_t *offsets = g_new(size_t, length + 1);
     const size_t count = text_gap_offsets(text, offsets, length + 1);
@@ -64,7 +65,7 @@ static char *with_gap_placeholders(const char *text, size_t **offsets_out, size_
     g_string_append(gapped, text + copied);
     *offsets_out = offsets;
     *count_out = count;
-    return g_string_free(gapped, false);
+    return gapped;
 }
 
 static PangoAttrList *attributes_for(const char *gapped, const size_t *gaps, size_t gap_count,
@@ -113,17 +114,17 @@ PangoLayout *layout_text(PangoContext *context, const char *family, double size_
                          enum digit_figures figures, const char *text) {
     size_t *gaps;
     size_t gap_count;
-    char *gapped = with_gap_placeholders(text, &gaps, &gap_count);
+    GString *gapped = with_gap_placeholders(text, &gaps, &gap_count);
     PangoLayout *layout = pango_layout_new(context);
-    pango_layout_set_text(layout, gapped, -1);
+    pango_layout_set_text(layout, gapped->str, (int)gapped->len);
     set_font(layout, family, size_px);
     PangoAttrList *attributes =
-            attributes_for(gapped, gaps, gap_count, size_px,
+            attributes_for(gapped->str, gaps, gap_count, size_px,
                            figures == DIGITS_TABULAR ? FEATURES_TABULAR : FEATURES, true);
     pango_layout_set_attributes(layout, attributes);
     pango_attr_list_unref(attributes);
     g_free(gaps);
-    g_free(gapped);
+    g_string_free(gapped, true);
     return layout;
 }
 
@@ -150,6 +151,15 @@ static bool block_fits(PangoLayout *layout, int size_px) {
     return fits;
 }
 
+static bool is_one_of(gunichar character, const gunichar *set, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (character == set[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool ends_with_hanging_punctuation(const char *text, PangoLayoutLine *line) {
     const char *start = text + pango_layout_line_get_start_index(line);
     const char *cursor = start + pango_layout_line_get_length(line);
@@ -159,14 +169,80 @@ static bool ends_with_hanging_punctuation(const char *text, PangoLayoutLine *lin
         if (character == GAP_PLACEHOLDER_CHAR || g_unichar_isspace(character)) {
             continue;
         }
-        for (size_t i = 0; i < G_N_ELEMENTS(HANGING_PUNCTUATION); i++) {
-            if (character == HANGING_PUNCTUATION[i]) {
-                return true;
-            }
-        }
-        return false;
+        return is_one_of(character, HANGING_PUNCTUATION, G_N_ELEMENTS(HANGING_PUNCTUATION));
     }
     return false;
+}
+
+static void set_phrase_text(PangoLayout *layout, const GString *gapped, const size_t *gaps,
+                            size_t gap_count, int size_px) {
+    pango_layout_set_text(layout, gapped->str, (int)gapped->len);
+    PangoAttrList *attributes =
+            attributes_for(gapped->str, gaps, gap_count, size_px, FEATURES, false);
+    pango_layout_set_attributes(layout, attributes);
+    pango_attr_list_unref(attributes);
+}
+
+static void shift_gaps(size_t *gaps, size_t gap_count, size_t from, int by) {
+    for (size_t i = 0; i < gap_count; i++) {
+        if (gaps[i] >= from) {
+            gaps[i] = (size_t)((long)gaps[i] + by);
+        }
+    }
+}
+
+// The byte offset just after the last 。，！？、；： in the line's last quarter, or 0 when the
+// line has none there or already ends with one.
+static size_t punctuation_cut(PangoLayout *layout, int line_index) {
+    PangoLayoutLine *line = pango_layout_get_line_readonly(layout, line_index);
+    const char *text = pango_layout_get_text(layout);
+    const char *start = text + pango_layout_line_get_start_index(line);
+    const char *end = start + pango_layout_line_get_length(line);
+    PangoRectangle logical;
+    pango_layout_line_get_extents(line, nullptr, &logical);
+    size_t cut = 0;
+    for (const char *cursor = start; cursor < end; cursor = g_utf8_next_char(cursor)) {
+        if (!is_one_of(g_utf8_get_char(cursor), BREAK_PUNCTUATION,
+                       G_N_ELEMENTS(BREAK_PUNCTUATION))) {
+            continue;
+        }
+        const char *after = g_utf8_next_char(cursor);
+        if (after >= end) {
+            return 0;
+        }
+        if (g_unichar_ispunct(g_utf8_get_char(after))) {
+            continue; // a closing quote or bracket stays with its punctuation
+        }
+        int trailing_x;
+        pango_layout_line_index_to_x(line, (int)(cursor - text), true, &trailing_x);
+        if (trailing_x * 4 >= logical.width * 3) {
+            cut = (size_t)(after - text);
+        }
+    }
+    return cut;
+}
+
+// Moves a wrap back to the punctuation just before it when that costs no size and no line.
+static void prefer_punctuation_breaks(PangoLayout *layout, GString *gapped, size_t *gaps,
+                                      size_t gap_count, int size_px) {
+    const int lines = pango_layout_get_line_count(layout);
+    for (int i = 0; i + 1 < lines; i++) {
+        if (pango_layout_line_is_paragraph_start(pango_layout_get_line_readonly(layout, i + 1))) {
+            continue;
+        }
+        const size_t cut = punctuation_cut(layout, i);
+        if (cut == 0) {
+            continue;
+        }
+        g_string_insert_c(gapped, (gssize)cut, '\n');
+        shift_gaps(gaps, gap_count, cut, 1);
+        set_phrase_text(layout, gapped, gaps, gap_count, size_px);
+        if (!block_fits(layout, size_px) || pango_layout_get_line_count(layout) != lines) {
+            g_string_erase(gapped, (gssize)cut, 1);
+            shift_gaps(gaps, gap_count, cut + 1, -1);
+            set_phrase_text(layout, gapped, gaps, gap_count, size_px);
+        }
+    }
 }
 
 static void draw_block(cairo_t *cr, PangoLayout *layout, int size_px) {
@@ -201,19 +277,16 @@ struct phrase_fit layout_phrase(PangoFontMap *fonts, cairo_t *cr, const char *te
     PangoContext *context = layout_context_new(fonts, cr);
     size_t *gaps;
     size_t gap_count;
-    char *gapped = with_gap_placeholders(text, &gaps, &gap_count);
+    GString *gapped = with_gap_placeholders(text, &gaps, &gap_count);
     PangoLayout *layout = pango_layout_new(context);
-    pango_layout_set_text(layout, gapped, -1);
     pango_layout_set_width(layout, (int)(PHRASE_WIDTH * PANGO_SCALE));
-    pango_layout_set_wrap(layout, PANGO_WRAP_WORD_CHAR);
+    pango_layout_set_wrap(layout, PANGO_WRAP_WORD);
     struct phrase_fit fit = {};
     for (int size_px = PHRASE_SIZE_MAX; size_px >= PHRASE_SIZE_MIN; size_px -= PHRASE_SIZE_STEP) {
         set_font(layout, FONT_FAMILY_CJK, size_px);
-        PangoAttrList *attributes =
-                attributes_for(gapped, gaps, gap_count, size_px, FEATURES, false);
-        pango_layout_set_attributes(layout, attributes);
-        pango_attr_list_unref(attributes);
+        set_phrase_text(layout, gapped, gaps, gap_count, size_px);
         if (block_fits(layout, size_px)) {
+            prefer_punctuation_breaks(layout, gapped, gaps, gap_count, size_px);
             fit.fits = true;
             fit.size_px = size_px;
             fit.lines = pango_layout_get_line_count(layout);
@@ -225,6 +298,6 @@ struct phrase_fit layout_phrase(PangoFontMap *fonts, cairo_t *cr, const char *te
     g_object_unref(layout);
     g_object_unref(context);
     g_free(gaps);
-    g_free(gapped);
+    g_string_free(gapped, true);
     return fit;
 }

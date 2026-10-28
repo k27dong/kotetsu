@@ -35,10 +35,9 @@ static void cloud_path(cairo_t *cr, double left, double top, double width) {
     circle(cr, 0.24, 0.40, 0.22);
     circle(cr, 0.52, 0.30, 0.30);
     circle(cr, 0.78, 0.42, 0.20);
-    circle(cr, 0.13, 0.51, 0.11); // the two small circles round the slab's bottom corners
+    circle(cr, 0.13, 0.51, 0.11);
     circle(cr, 0.87, 0.51, 0.11);
     cairo_rectangle(cr, 0.13, 0.40, 0.74, 0.22);
-    cairo_rectangle(cr, 0.02, 0.51, 0.96, 0.11);
     cairo_restore(cr);
 }
 
@@ -62,7 +61,7 @@ static void sun(cairo_t *cr, double x, double y, double radius) {
     }
 }
 
-static void raining_cloud(cairo_t *cr) {
+static void upper_cloud(cairo_t *cr) {
     cloud(cr, 0.04, 0.02, 0.92);
 }
 
@@ -126,37 +125,37 @@ void icons_draw_weather(cairo_t *cr, enum weather_icon icon, double x, double y,
         cloud(cr, 0.02, 0.19, 0.96);
         break;
     case WEATHER_ICON_FOG:
-        raining_cloud(cr);
+        upper_cloud(cr);
         line(cr, 0.12, 0.72, 0.88, 0.72, 0.08);
         line(cr, 0.24, 0.88, 0.76, 0.88, 0.08);
         break;
     case WEATHER_ICON_DRIZZLE:
-        raining_cloud(cr);
+        upper_cloud(cr);
         rain(cr, three, G_N_ELEMENTS(three), 0.72, 0.84, 0.075);
         break;
     case WEATHER_ICON_RAIN:
-        raining_cloud(cr);
+        upper_cloud(cr);
         rain(cr, three, G_N_ELEMENTS(three), 0.70, 0.96, 0.08);
         break;
     case WEATHER_ICON_HEAVY_RAIN:
-        raining_cloud(cr);
+        upper_cloud(cr);
         rain(cr, four, G_N_ELEMENTS(four), 0.68, 0.98, 0.085);
         break;
     case WEATHER_ICON_STORM:
-        raining_cloud(cr);
+        upper_cloud(cr);
         bolt(cr);
         break;
     case WEATHER_ICON_SLEET:
-        raining_cloud(cr);
+        upper_cloud(cr);
         rain(cr, sides, G_N_ELEMENTS(sides), 0.70, 0.96, 0.08);
         flakes(cr, middle, G_N_ELEMENTS(middle), 0.85);
         break;
     case WEATHER_ICON_SNOW:
-        raining_cloud(cr);
+        upper_cloud(cr);
         flakes(cr, three, G_N_ELEMENTS(three), 0.84);
         break;
     case WEATHER_ICON_HEAVY_SNOW:
-        raining_cloud(cr);
+        upper_cloud(cr);
         flakes(cr, upper, G_N_ELEMENTS(upper), 0.75);
         flakes(cr, lower, G_N_ELEMENTS(lower), 0.93);
         break;
@@ -237,8 +236,8 @@ void icons_draw_small(cairo_t *cr, enum small_icon icon, double x, double y) {
         cairo_line_to(cr, 0.50, 0.28);
         cairo_close_path(cr);
         cairo_move_to(cr, 0.83, 0.44);
-        cairo_line_to(cr, 0.80, 0.06);
         cairo_line_to(cr, 0.50, 0.28);
+        cairo_line_to(cr, 0.80, 0.06);
         cairo_close_path(cr);
         break;
     case SMALL_ICON_HEARTS:

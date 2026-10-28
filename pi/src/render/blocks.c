@@ -7,6 +7,7 @@
 #include <glib.h>
 #include <pango/pango.h>
 
+#include "log.h"
 #include "model.h"
 #include "render/fonts.h"
 #include "render/icons.h"
@@ -43,17 +44,18 @@ static constexpr double WEATHER_ICON_TOP = 362;
 static constexpr double WEATHER_ICON_SIZE = 58;
 static constexpr double WEATHER_ICON_CENTRE = 323;
 static constexpr double TEMPERATURE_MAX_WIDTH = 150;
+static constexpr double RANGE_CLEARANCE = 8;
 
 static constexpr double COUNTER_CENTRE_X = 652;
 static constexpr double COUNTER_CENTRE_Y = 406;
 static constexpr double COUNTER_RIGHT_LIMIT = 762;
 static constexpr double COUNTER_UNIT_GAP = 10;
+static constexpr double COUNTER_TEXT_LEFT = 548;
 static constexpr double TILE_LEFT = 536;
 static constexpr double TILE_TOP = 352;
 static constexpr double TILE_WIDTH = 232;
 static constexpr double TILE_HEIGHT = 108;
 static constexpr double TILE_RADIUS = 8;
-static constexpr double TILE_TEXT_LEFT = 548;
 static constexpr double TILE_RIGHT_LIMIT = 756;
 static constexpr double TILE_ICON_TOP = 428;
 static constexpr double GREETING_LEFT = 582;
@@ -71,8 +73,17 @@ static constexpr double WIFI_STEP_CIRCLE_RADIUS = 18;
 static constexpr double WIFI_STEP_NUMBER_SIZE = 22;
 static constexpr double WIFI_FOOTER_SIZE = 22;
 static constexpr double WIFI_FOOTER_BASELINE = 420;
-static const double WIFI_STEP_BASELINES[] = {220, 286, 352};
-static const char *const WIFI_STEPS[] = {"扫描左边的二维码", "选择家里的 Wi-Fi", "输入密码"};
+
+struct wifi_step {
+    double baseline;
+    const char *text;
+};
+
+static const struct wifi_step WIFI_STEPS[] = {
+        {220, "扫描左边的二维码"},
+        {286, "选择家里的 Wi-Fi"},
+        {352, "输入密码"},
+};
 
 #define COUNTER_UNIT "天"
 #define REST_DAY     "休"
@@ -106,13 +117,16 @@ static struct text_metrics measure(PangoLayout *layout) {
     };
 }
 
-// On the A8 surface black is coverage, so white ink is drawn by removing coverage.
 static void set_ink(cairo_t *cr, enum ink ink) {
-    cairo_set_operator(cr, ink == INK_WHITE ? CAIRO_OPERATOR_DEST_OUT : CAIRO_OPERATOR_OVER);
+    if (ink == INK_WHITE) {
+        cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT); // A8 has no white, so remove coverage
+    } else {
+        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+    }
 }
 
-static void rounded_rect(cairo_t *cr, double left, double top, double width, double height,
-                         double radius) {
+static void fill_rounded_rect(cairo_t *cr, double left, double top, double width, double height,
+                              double radius) {
     cairo_new_sub_path(cr);
     cairo_arc(cr, left + width - radius, top + radius, radius, -G_PI / 2, 0);
     cairo_arc(cr, left + width - radius, top + height - radius, radius, 0, G_PI / 2);
@@ -122,12 +136,16 @@ static void rounded_rect(cairo_t *cr, double left, double top, double width, dou
     cairo_fill(cr);
 }
 
-static PangoLayout *shrunk_to_fit(PangoContext *context, const char *family, double size,
-                                  double size_min, enum digit_figures figures, const char *text,
-                                  double max_advance) {
+static PangoLayout *shrunk_to_fit(PangoContext *context, const char *field, const char *family,
+                                  double size, double size_min, enum digit_figures figures,
+                                  const char *text, double max_advance) {
     for (;; size -= 1) {
         PangoLayout *layout = layout_text(context, family, size, figures, text);
-        if (measure(layout).advance <= max_advance || size <= size_min) {
+        if (measure(layout).advance <= max_advance) {
+            return layout;
+        }
+        if (size <= size_min) {
+            log_warning("the %s doesn't fit at %.0f px", field, size);
             return layout;
         }
         g_object_unref(layout);
@@ -159,7 +177,7 @@ static double pill_width(PangoLayout *label) {
 
 static void draw_pill(cairo_t *cr, PangoLayout *label, double left) {
     set_ink(cr, INK_BLACK);
-    rounded_rect(cr, left, PILL_TOP, pill_width(label), PILL_HEIGHT, PILL_HEIGHT / 2);
+    fill_rounded_rect(cr, left, PILL_TOP, pill_width(label), PILL_HEIGHT, PILL_HEIGHT / 2);
     set_ink(cr, INK_WHITE);
     layout_show(cr, label, left + PILL_PADDING, LINE_BASELINE);
     set_ink(cr, INK_BLACK);
@@ -177,16 +195,16 @@ static void draw_date_line(cairo_t *cr, PangoContext *context, const struct date
     char text[64];
     snprintf(text, sizeof text, "%s%s%s", line->prefix == nullptr ? "" : line->prefix,
              line->prefix == nullptr ? "" : " ", line->lunar);
-    PangoLayout *layout = shrunk_to_fit(context, FONT_FAMILY_CJK, LINE_SIZE, LINE_SIZE_MIN,
-                                        DIGITS_PROPORTIONAL, text, DATE_RIGHT - x);
+    PangoLayout *layout = shrunk_to_fit(context, "date line", FONT_FAMILY_CJK, LINE_SIZE,
+                                        LINE_SIZE_MIN, DIGITS_PROPORTIONAL, text, DATE_RIGHT - x);
     layout_show(cr, layout, x, LINE_BASELINE);
     g_object_unref(layout);
 }
 
 static void draw_rest_badge(cairo_t *cr, PangoContext *context) {
     set_ink(cr, INK_BLACK);
-    rounded_rect(cr, REST_BADGE_LEFT, REST_BADGE_TOP, REST_BADGE_SIZE, REST_BADGE_SIZE,
-                 REST_BADGE_RADIUS);
+    fill_rounded_rect(cr, REST_BADGE_LEFT, REST_BADGE_TOP, REST_BADGE_SIZE, REST_BADGE_SIZE,
+                      REST_BADGE_RADIUS);
     PangoLayout *label =
             layout_text(context, FONT_FAMILY_CJK, LABEL_SIZE, DIGITS_PROPORTIONAL, REST_DAY);
     set_ink(cr, INK_WHITE);
@@ -215,68 +233,71 @@ void blocks_draw_date(cairo_t *cr, PangoContext *context, const struct screen_mo
 void blocks_draw_weather(cairo_t *cr, PangoContext *context, const struct weather_view *weather) {
     icons_draw_weather(cr, weather->icon, WEATHER_ICON_LEFT, WEATHER_ICON_TOP, WEATHER_ICON_SIZE);
     PangoLayout *temperature =
-            shrunk_to_fit(context, FONT_FAMILY_DIGITS, NUMBER_SIZE, LINE_SIZE, DIGITS_TABULAR,
-                          weather->temperature, TEMPERATURE_MAX_WIDTH);
+            shrunk_to_fit(context, "temperature", FONT_FAMILY_DIGITS, NUMBER_SIZE, LINE_SIZE,
+                          DIGITS_TABULAR, weather->temperature, TEMPERATURE_MAX_WIDTH);
     show_right_aligned(cr, temperature, WEATHER_RIGHT, NUMBER_BASELINE);
     g_object_unref(temperature);
-    if (weather->range[0] != '\0') {
-        PangoLayout *range =
-                layout_text(context, FONT_FAMILY_DIGITS, LINE_SIZE, DIGITS_TABULAR, weather->range);
-        show_right_aligned(cr, range, WEATHER_RIGHT, LINE_BASELINE);
-        g_object_unref(range);
-    }
+    double line_right;
     if (weather->line_kind == WEATHER_LINE_BADGE) {
         PangoLayout *label = layout_text(context, FONT_FAMILY_CJK, PILL_TEXT_SIZE,
                                          DIGITS_PROPORTIONAL, weather->line);
-        const double left = layout_snap(WEATHER_ICON_CENTRE - pill_width(label) / 2);
-        draw_pill(cr, label, MAX(left, WEATHER_LEFT));
+        const double left =
+                MAX(layout_snap(WEATHER_ICON_CENTRE - pill_width(label) / 2), WEATHER_LEFT);
+        draw_pill(cr, label, left);
+        line_right = left + pill_width(label);
         g_object_unref(label);
     } else {
         PangoLayout *line =
                 layout_text(context, FONT_FAMILY_CJK, LINE_SIZE, DIGITS_TABULAR, weather->line);
-        const double left = WEATHER_ICON_CENTRE - measure(line).advance / 2;
-        layout_show(cr, line, MAX(left, WEATHER_LEFT), LINE_BASELINE);
+        const double left = MAX(WEATHER_ICON_CENTRE - measure(line).advance / 2, WEATHER_LEFT);
+        layout_show(cr, line, left, LINE_BASELINE);
+        line_right = left + measure(line).advance;
         g_object_unref(line);
+    }
+    if (weather->range[0] != '\0') {
+        PangoLayout *range = shrunk_to_fit(context, "weather range", FONT_FAMILY_DIGITS, LINE_SIZE,
+                                           LINE_SIZE_MIN, DIGITS_TABULAR, weather->range,
+                                           WEATHER_RIGHT - line_right - RANGE_CLEARANCE);
+        show_right_aligned(cr, range, WEATHER_RIGHT, LINE_BASELINE);
+        g_object_unref(range);
     }
 }
 
 static void draw_counter_number(cairo_t *cr, PangoContext *context, const char *days,
                                 PangoLayout *unit) {
     const double unit_advance = measure(unit).advance;
-    for (double size = NUMBER_SIZE;; size -= 1) {
-        PangoLayout *number =
-                layout_text(context, FONT_FAMILY_DIGITS, size, DIGITS_PROPORTIONAL, days);
-        const struct text_metrics metrics = measure(number);
-        const double left = COUNTER_CENTRE_X - (metrics.ink_left + metrics.ink_right) / 2;
-        const double right = left + metrics.advance + COUNTER_UNIT_GAP + unit_advance;
-        if (right <= COUNTER_RIGHT_LIMIT || size <= LINE_SIZE) {
-            const double baseline = COUNTER_CENTRE_Y - (metrics.ink_top + metrics.ink_bottom) / 2;
-            layout_show(cr, number, left, baseline);
-            layout_show(cr, unit, left + metrics.advance + COUNTER_UNIT_GAP, baseline);
-            g_object_unref(number);
-            return;
-        }
-        g_object_unref(number);
-    }
+    PangoLayout *number = shrunk_to_fit(
+            context, "counter", FONT_FAMILY_DIGITS, NUMBER_SIZE, LINE_SIZE, DIGITS_PROPORTIONAL,
+            days, COUNTER_RIGHT_LIMIT - COUNTER_TEXT_LEFT - COUNTER_UNIT_GAP - unit_advance);
+    const struct text_metrics metrics = measure(number);
+    const double centred_left = COUNTER_CENTRE_X - (metrics.ink_left + metrics.ink_right) / 2;
+    const double pair_width = metrics.advance + COUNTER_UNIT_GAP + unit_advance;
+    const double left =
+            MIN(centred_left, COUNTER_RIGHT_LIMIT - pair_width); // centring yields first
+    const double baseline = COUNTER_CENTRE_Y - (metrics.ink_top + metrics.ink_bottom) / 2;
+    layout_show(cr, number, left, baseline);
+    layout_show(cr, unit, left + metrics.advance + COUNTER_UNIT_GAP, baseline);
+    g_object_unref(number);
 }
 
 static void draw_counter_tile(cairo_t *cr, PangoContext *context, const char *days,
                               PangoLayout *unit, const struct screen_model *model) {
     set_ink(cr, INK_BLACK);
-    rounded_rect(cr, TILE_LEFT, TILE_TOP, TILE_WIDTH, TILE_HEIGHT, TILE_RADIUS);
+    fill_rounded_rect(cr, TILE_LEFT, TILE_TOP, TILE_WIDTH, TILE_HEIGHT, TILE_RADIUS);
     set_ink(cr, INK_WHITE);
     const double unit_advance = measure(unit).advance;
-    PangoLayout *number = shrunk_to_fit(
-            context, FONT_FAMILY_DIGITS, NUMBER_SIZE, LINE_SIZE, DIGITS_PROPORTIONAL, days,
-            TILE_RIGHT_LIMIT - TILE_TEXT_LEFT - COUNTER_UNIT_GAP - unit_advance);
-    layout_show(cr, number, TILE_TEXT_LEFT, NUMBER_BASELINE);
-    layout_show(cr, unit, TILE_TEXT_LEFT + measure(number).advance + COUNTER_UNIT_GAP,
+    PangoLayout *number =
+            shrunk_to_fit(context, "tile counter", FONT_FAMILY_DIGITS, NUMBER_SIZE, LINE_SIZE,
+                          DIGITS_PROPORTIONAL, days,
+                          TILE_RIGHT_LIMIT - COUNTER_TEXT_LEFT - COUNTER_UNIT_GAP - unit_advance);
+    layout_show(cr, number, COUNTER_TEXT_LEFT, NUMBER_BASELINE);
+    layout_show(cr, unit, COUNTER_TEXT_LEFT + measure(number).advance + COUNTER_UNIT_GAP,
                 NUMBER_BASELINE);
     g_object_unref(number);
-    icons_draw_small(cr, model->greeting_icon, TILE_TEXT_LEFT, TILE_ICON_TOP);
+    icons_draw_small(cr, model->greeting_icon, COUNTER_TEXT_LEFT, TILE_ICON_TOP);
     PangoLayout *greeting =
-            shrunk_to_fit(context, FONT_FAMILY_CJK, LABEL_SIZE, LINE_SIZE_MIN, DIGITS_PROPORTIONAL,
-                          model->greeting, TILE_RIGHT_LIMIT - GREETING_LEFT);
+            shrunk_to_fit(context, "greeting", FONT_FAMILY_CJK, LABEL_SIZE, LINE_SIZE_MIN,
+                          DIGITS_PROPORTIONAL, model->greeting, TILE_RIGHT_LIMIT - GREETING_LEFT);
     layout_show(cr, greeting, GREETING_LEFT, LINE_BASELINE);
     g_object_unref(greeting);
     set_ink(cr, INK_BLACK);
@@ -308,7 +329,7 @@ void blocks_draw_wifi_setup(cairo_t *cr, PangoContext *context) {
     cairo_fill(cr);
     show_text(cr, context, WIFI_TITLE_SIZE, WIFI_TITLE, WIFI_TEXT_LEFT, WIFI_TITLE_BASELINE);
     for (size_t step = 0; step < G_N_ELEMENTS(WIFI_STEPS); step++) {
-        const double baseline = WIFI_STEP_BASELINES[step];
+        const double baseline = WIFI_STEPS[step].baseline;
         const double centre_y = layout_snap(baseline - HAN_CENTRE_ABOVE_BASELINE * WIFI_STEP_SIZE);
         cairo_new_sub_path(cr);
         cairo_arc(cr, WIFI_STEP_CIRCLE_X, centre_y, WIFI_STEP_CIRCLE_RADIUS, 0, 2 * G_PI);
@@ -320,7 +341,8 @@ void blocks_draw_wifi_setup(cairo_t *cr, PangoContext *context) {
         show_centred(cr, digit, WIFI_STEP_CIRCLE_X, centre_y);
         set_ink(cr, INK_BLACK);
         g_object_unref(digit);
-        show_text(cr, context, WIFI_STEP_SIZE, WIFI_STEPS[step], WIFI_STEP_TEXT_LEFT, baseline);
+        show_text(cr, context, WIFI_STEP_SIZE, WIFI_STEPS[step].text, WIFI_STEP_TEXT_LEFT,
+                  baseline);
     }
     show_text(cr, context, WIFI_FOOTER_SIZE, WIFI_FOOTER, WIFI_TEXT_LEFT, WIFI_FOOTER_BASELINE);
 }
