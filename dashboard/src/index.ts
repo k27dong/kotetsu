@@ -78,7 +78,7 @@ async function respond(route: Route, context: RouteContext): Promise<Response> {
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return new Response(null, { status: 404 });
+    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 
     const now = requestTime(request, env);
     if (request.method === "POST" && url.pathname === "/api/login") {
