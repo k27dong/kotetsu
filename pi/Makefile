@@ -20,9 +20,14 @@ SRCS := \
 	src/log.c \
 	src/panel/refresh.c \
 	src/panel/state.c \
+	src/render/blocks.c \
 	src/render/fonts.c \
 	src/render/frame.c \
-	src/render/text.c
+	src/render/icons.c \
+	src/render/layout.c \
+	src/render/screen.c \
+	src/render/text.c \
+	src/render/wifi_qr.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
