@@ -20,6 +20,7 @@ const SPECIAL_KINDS = [
   ["lunar_yearly", "农历"],
 ];
 const PROBLEMS = { too_long: "Too long for the screen", missing_glyphs: "Missing characters" };
+const SCREEN_UPDATE_NOTICE = "Requested. The screen updates within 3 minutes.";
 const LUNAR_MONTHS = "正月 二月 三月 四月 五月 六月 七月 八月 九月 十月 冬月 腊月".split(" ");
 const LUNAR_DAYS = (
   "初一 初二 初三 初四 初五 初六 初七 初八 初九 初十 " +
@@ -372,6 +373,7 @@ async function nowPage() {
                   perform(event.target, messages, async () => {
                     await api(`/api/phrases/${next.id}/show`, "POST");
                     await loadAgain();
+                    messages.textContent = SCREEN_UPDATE_NOTICE;
                   }),
               },
               "Show now",
@@ -383,6 +385,7 @@ async function nowPage() {
                   perform(event.target, messages, async () => {
                     await api("/api/skip", "POST");
                     await loadAgain();
+                    messages.textContent = SCREEN_UPDATE_NOTICE;
                   }),
               },
               "Skip",
@@ -400,7 +403,7 @@ async function nowPage() {
             onclick: (event) =>
               perform(event.target, refreshMessages, async () => {
                 await api("/api/full-refresh", "POST");
-                refreshMessages.textContent = "Requested. The Pi picks it up within 15 s.";
+                refreshMessages.textContent = SCREEN_UPDATE_NOTICE;
               }),
           },
           "Full refresh",
@@ -705,7 +708,8 @@ async function editPage(id) {
     const strip = await screen;
     if (token !== draws) return;
     const fit = drawPreview(canvas, text, strip);
-    sizeLabel.textContent = text.trim() === "" ? "" : `${fit.sizePx} px`;
+    sizeLabel.textContent =
+      text.trim() === "" ? "" : fit.fits ? `${fit.sizePx} px` : PROBLEMS.too_long;
   }
   function grow() {
     textarea.style.height = "auto";
