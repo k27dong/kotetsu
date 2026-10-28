@@ -1,3 +1,4 @@
+import { isMatching, P } from "ts-pattern";
 import {
   createPhrase,
   deletePhrase,
@@ -14,6 +15,7 @@ import {
   updatePhrase,
 } from "./api_dash";
 import { piNow, piScreen } from "./api_pi";
+import type { ErrorResponse, LoginRequest } from "./api_types";
 import { checkPassword, hasSession, isPi, requestTime, sessionCookie } from "./auth";
 import type { Env } from "./env";
 import { InputError } from "./validate";
@@ -54,29 +56,28 @@ const matchers = routes.map((route) => ({
   pattern: new URLPattern({ pathname: route.path }),
 }));
 
-async function login(request: Request, env: Env, now: Date): Promise<Response> {
+const login = async (request: Request, env: Env, now: Date): Promise<Response> => {
   const body: unknown = await request.json().catch(() => null);
-  const password =
-    typeof body === "object" && body !== null && "password" in body ? body.password : undefined;
-  if (typeof password !== "string") return new Response(null, { status: 400 });
+  if (!isMatching({ password: P.string }, body)) return new Response(null, { status: 400 });
+  const { password }: LoginRequest = body;
   if (!(await checkPassword(password, env))) return new Response(null, { status: 401 });
   const headers = { "Set-Cookie": await sessionCookie(env, now) };
   return new Response(null, { status: 204, headers });
-}
+};
 
-async function respond(route: Route, context: RouteContext): Promise<Response> {
+const respond = async (route: Route, context: RouteContext): Promise<Response> => {
   try {
     return await route.handler(context);
   } catch (error) {
     if (error instanceof InputError) {
-      return Response.json({ error: error.message }, { status: 400 });
+      return Response.json({ error: error.message } satisfies ErrorResponse, { status: 400 });
     }
     throw error;
   }
-}
+};
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  fetch: async (request, env): Promise<Response> => {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 

@@ -10,7 +10,7 @@ const HKO_MONTH_STARTS = new Map([["2057-09-29", "2057-09-28"]]);
 // 6tail remembers one year at a time, and rebuilding one costs about 0.2 ms
 const monthStartsByYear = new Map<number, MonthStart[]>();
 
-function monthStartsOf(year: number): MonthStart[] {
+const monthStartsOf = (year: number): MonthStart[] => {
   const cached = monthStartsByYear.get(year);
   if (cached !== undefined) return cached;
   // 6tail's 15 months start at the previous 11th and end at the next 1st, or at this year's 12th
@@ -27,9 +27,9 @@ function monthStartsOf(year: number): MonthStart[] {
     });
   monthStartsByYear.set(year, starts);
   return starts;
-}
+};
 
-export function lunarOf(date: string): LunarDate {
+export const lunarOf = (date: string): LunarDate => {
   const starts = monthStartsOf(parseDate(date).year);
   const index = starts.findLastIndex((month) => month.start <= date);
   const current = starts[index];
@@ -45,14 +45,14 @@ export function lunarOf(date: string): LunarDate {
     leap: current.leap,
     monthLength,
   };
-}
+};
 
-export function solarOf(
+export const solarOf = (
   lunarYear: number,
   month: number,
   day: number,
   leap: boolean,
-): string | null {
+): string | null => {
   const starts = monthStartsOf(lunarYear);
   // the list opens with the previous year's 11th and 12th months
   const newYear = starts.findIndex((start) => start.month === 1 && !start.leap);
@@ -60,4 +60,4 @@ export function solarOf(
   const found = starts.slice(newYear).find((start) => start.month === month && start.leap === leap);
   if (found === undefined || day < 1 || day > lunarOf(found.start).monthLength) return null;
   return shiftDate(found.start, day - 1);
-}
+};

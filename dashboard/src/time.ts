@@ -20,15 +20,11 @@ const warsawClock = new Intl.DateTimeFormat("en-US", {
   second: "2-digit",
 });
 
-function isoDate(instant: Date): string {
-  return instant.toISOString().slice(0, 10);
-}
+const isoDate = (instant: Date): string => instant.toISOString().slice(0, 10);
 
-function utcMidnight({ year, month, day }: CalendarDate): number {
-  return Date.UTC(year, month - 1, day);
-}
+const utcMidnight = ({ year, month, day }: CalendarDate): number => Date.UTC(year, month - 1, day);
 
-export function parseDate(text: string): CalendarDate {
+export const parseDate = (text: string): CalendarDate => {
   const date = {
     year: Number(text.slice(0, 4)),
     month: Number(text.slice(5, 7)),
@@ -37,17 +33,15 @@ export function parseDate(text: string): CalendarDate {
   const real = CALENDAR_DATE.test(text) && isoDate(new Date(utcMidnight(date))) === text;
   if (!real) throw new Error(`Expected a real YYYY-MM-DD date, not "${text}"`);
   return date;
-}
+};
 
-export function daysBetween(from: string, to: string): number {
-  return (utcMidnight(parseDate(to)) - utcMidnight(parseDate(from))) / DAY_MS;
-}
+export const daysBetween = (from: string, to: string): number =>
+  (utcMidnight(parseDate(to)) - utcMidnight(parseDate(from))) / DAY_MS;
 
-export function shiftDate(date: string, days: number): string {
-  return isoDate(new Date(utcMidnight(parseDate(date)) + days * DAY_MS));
-}
+export const shiftDate = (date: string, days: number): string =>
+  isoDate(new Date(utcMidnight(parseDate(date)) + days * DAY_MS));
 
-export function isIsoTimeWithOffset(text: string): boolean {
+export const isIsoTimeWithOffset = (text: string): boolean => {
   const match = ISO_TIME_WITH_OFFSET.exec(text);
   if (match === null) return false;
   const year = Number(match[1]);
@@ -60,9 +54,9 @@ export function isIsoTimeWithOffset(text: string): boolean {
     calendar.getUTCDate() === day;
   if (!realDay || Number(match[4]) >= 24) return false; // Date reads T24:00 as the next day
   return !Number.isNaN(Date.parse(text));
-}
+};
 
-function warsawWallClock(instant: Date): number {
+const warsawWallClock = (instant: Date): number => {
   const parts = new Map(warsawClock.formatToParts(instant).map((part) => [part.type, part.value]));
   const field = (type: Intl.DateTimeFormatPartTypes): number => {
     const value = parts.get(type);
@@ -79,21 +73,17 @@ function warsawWallClock(instant: Date): number {
     field("minute"),
     field("second"),
   );
-}
+};
 
-function warsawOffsetMs(instant: Date): number {
-  return warsawWallClock(instant) - Math.floor(instant.getTime() / 1000) * 1000;
-}
+const warsawOffsetMs = (instant: Date): number =>
+  warsawWallClock(instant) - Math.floor(instant.getTime() / 1000) * 1000;
 
-export function warsawDate(instant: Date): string {
-  return isoDate(new Date(warsawWallClock(instant)));
-}
+export const warsawDate = (instant: Date): string => isoDate(new Date(warsawWallClock(instant)));
 
-export function warsawMinuteOfDay(instant: Date): number {
-  return Math.floor((warsawWallClock(instant) % DAY_MS) / MINUTE_MS);
-}
+export const warsawMinuteOfDay = (instant: Date): number =>
+  Math.floor((warsawWallClock(instant) % DAY_MS) / MINUTE_MS);
 
-export function warsawInstant(date: string, minuteOfDay: number): Date {
+export const warsawInstant = (date: string, minuteOfDay: number): Date => {
   const wall = utcMidnight(parseDate(date)) + minuteOfDay * MINUTE_MS;
   const before = warsawOffsetMs(new Date(wall - DAY_MS));
   const after = warsawOffsetMs(new Date(wall + DAY_MS));
@@ -102,27 +92,26 @@ export function warsawInstant(date: string, minuteOfDay: number): Date {
   );
   // a wall time the clock change repeats takes its first pass; one it skips keeps the old offset
   return new Date(real.length > 0 ? Math.min(...real) : wall - before);
-}
+};
 
-export function isPhraseTime(text: string): boolean {
-  return PHRASE_TIME.test(text) && Number(text.slice(0, 2)) < 24 && Number(text.slice(3, 5)) < 60;
-}
+export const isPhraseTime = (text: string): boolean =>
+  PHRASE_TIME.test(text) && Number(text.slice(0, 2)) < 24 && Number(text.slice(3, 5)) < 60;
 
-function phraseMinute(text: string): number {
+const phraseMinute = (text: string): number => {
   if (!isPhraseTime(text)) throw new Error(`A phrase time is HH:MM, not "${text}"`);
   return Number(text.slice(0, 2)) * 60 + Number(text.slice(3, 5));
-}
+};
 
-function phraseMinutes(times: PhraseTimes): { first: number; second: number } {
+const phraseMinutes = (times: PhraseTimes): { first: number; second: number } => {
   const first = phraseMinute(times.first);
   const second = phraseMinute(times.second);
   if (first >= second) {
     throw new Error(`Phrase times must go up, not ${times.first} then ${times.second}`);
   }
   return { first, second };
-}
+};
 
-export function slotAt(instant: Date, times: PhraseTimes): Slot {
+export const slotAt = (instant: Date, times: PhraseTimes): Slot => {
   const { first, second } = phraseMinutes(times);
   const today = warsawDate(instant);
   const yesterday = shiftDate(today, -1);
@@ -140,9 +129,9 @@ export function slotAt(instant: Date, times: PhraseTimes): Slot {
     throw new Error(`No slot contains ${instant.toISOString()}`);
   }
   return { ...current, end: next.start };
-}
+};
 
-export function cleanupMinute(times: PhraseTimes): number {
+export const cleanupMinute = (times: PhraseTimes): number => {
   const { first, second } = phraseMinutes(times);
   return Math.floor((first + second) / 2);
-}
+};
