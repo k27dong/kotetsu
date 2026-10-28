@@ -235,7 +235,7 @@ export async function skip({ env, now }: RouteContext): Promise<Response> {
     readPins(db),
   ]);
   const slot = slotAt(now, times);
-  // drawn as the next slot will draw, so Skip shows the phrase status lists as next
+  // the next slot's rotation draw, which status lists as next unless that slot is pinned
   const id = await rotationPhrase(slotAt(slot.end, times), phrases, pins);
   if (id === null) {
     return Response.json({ error: "No phrase is left in rotation" }, { status: 409 });

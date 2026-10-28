@@ -66,9 +66,8 @@ export function isPi(request: Request, env: Env): boolean {
 export function requestTime(request: Request, env: Env): Date {
   const override = request.headers.get("X-Kotetsu-Now");
   if (env.ALLOW_TIME_OVERRIDE !== "1" || override === null) return new Date();
-  const time = new Date(override);
-  if (!isIsoTimeWithOffset(override) || Number.isNaN(time.getTime())) {
+  if (!isIsoTimeWithOffset(override)) {
     throw new Error(`X-Kotetsu-Now needs an ISO 8601 date, time and offset, not "${override}"`);
   }
-  return time;
+  return new Date(override);
 }

@@ -10,7 +10,7 @@ import {
 } from "./db";
 import type { RouteContext } from "./index";
 import { greetingFor, pinnedPhraseFor, rotationPick, type Pin, type PhraseRow } from "./rules";
-import { slotAt, warsawDate, type Slot } from "./time";
+import { cleanupMinute, slotAt, warsawDate, type Slot } from "./time";
 import { InputError, screenReport } from "./validate";
 
 const SCREEN_MAX_BYTES = 512 * 1024;
@@ -131,6 +131,7 @@ export async function piNow({ env, now }: RouteContext): Promise<Response> {
     phrase: { id: onWall.phrase.id, text: onWall.phrase.text, until: onWall.until },
     greeting: greetingFor(warsawDate(now), specialDays),
     full_refresh: state.fullRefreshSeq === 0 ? null : state.fullRefreshSeq,
+    cleanupMinute: cleanupMinute(times),
   });
 }
 

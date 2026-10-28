@@ -103,7 +103,7 @@ function monthAndDay(
 }
 
 function isoTime(value: unknown, what: string): string {
-  if (typeof value !== "string" || !isIsoTimeWithOffset(value) || Number.isNaN(Date.parse(value))) {
+  if (typeof value !== "string" || !isIsoTimeWithOffset(value)) {
     throw new InputError(`${what} must be a real ISO 8601 time with an offset`);
   }
   return new Date(value).toISOString();

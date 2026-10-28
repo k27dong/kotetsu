@@ -58,7 +58,8 @@ export function isIsoTimeWithOffset(text: string): boolean {
     calendar.getUTCFullYear() === year &&
     calendar.getUTCMonth() === month - 1 &&
     calendar.getUTCDate() === day;
-  return realDay && Number(match[4]) < 24; // Date reads T24:00 as the next day
+  if (!realDay || Number(match[4]) >= 24) return false; // Date reads T24:00 as the next day
+  return !Number.isNaN(Date.parse(text));
 }
 
 function warsawWallClock(instant: Date): number {
