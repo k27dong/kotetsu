@@ -30,7 +30,7 @@ static constexpr uint8_t RAM_Y_COUNTER = 0x4F;
 static constexpr int POWER_ON_SETTLE_MS = 10;
 static constexpr int RESET_PULSE_MS = 2;
 static constexpr int BUSY_POLL_MS = 10;
-static constexpr int DEEP_SLEEP_SETTLE_MS = 2000;
+static constexpr int POWER_OFF_SETTLE_MS = 2000;
 
 struct command {
     uint8_t code;
@@ -38,7 +38,8 @@ struct command {
     uint8_t data[5];
 };
 
-static bool send(const struct board_ops *board, uint8_t code, const uint8_t *data, size_t length) {
+static bool send_command(const struct board_ops *board, uint8_t code, const uint8_t *data,
+                         size_t length) {
     board->set_line(board->context, BOARD_LINE_DC, 0);
     if (!board->spi_write(board->context, &code, 1)) {
         return false;
@@ -59,7 +60,7 @@ static bool send(const struct board_ops *board, uint8_t code, const uint8_t *dat
 
 static bool send_all(const struct board_ops *board, const struct command *commands, size_t count) {
     for (size_t i = 0; i < count; i++) {
-        if (!send(board, commands[i].code, commands[i].data, commands[i].length)) {
+        if (!send_command(board, commands[i].code, commands[i].data, commands[i].length)) {
             return false;
         }
     }
@@ -113,7 +114,7 @@ static enum epd_status run_sequence(const struct board_ops *board, const struct 
     if (status != EPD_OK) {
         return status;
     }
-    if (!send(board, SOFTWARE_RESET, nullptr, 0)) {
+    if (!send_command(board, SOFTWARE_RESET, nullptr, 0)) {
         return EPD_IO_ERROR;
     }
     status = wait_while_busy(board, "software reset");
@@ -121,8 +122,8 @@ static enum epd_status run_sequence(const struct board_ops *board, const struct 
         return status;
     }
     if (!send_all(board, setup, sizeof setup / sizeof setup[0]) ||
-        !send(board, WRITE_GLASS_FRAME, on_glass->bits, FRAME_BYTES) ||
-        !send(board, WRITE_NEXT_FRAME, next->bits, FRAME_BYTES) ||
+        !send_command(board, WRITE_GLASS_FRAME, on_glass->bits, FRAME_BYTES) ||
+        !send_command(board, WRITE_NEXT_FRAME, next->bits, FRAME_BYTES) ||
         !send_all(board, start_refresh, sizeof start_refresh / sizeof start_refresh[0])) {
         return EPD_IO_ERROR;
     }
@@ -130,10 +131,9 @@ static enum epd_status run_sequence(const struct board_ops *board, const struct 
     if (status != EPD_OK) {
         return status;
     }
-    if (!send(board, DEEP_SLEEP, (const uint8_t[]){0x03}, 1)) {
+    if (!send_command(board, DEEP_SLEEP, (const uint8_t[]){0x03}, 1)) {
         return EPD_IO_ERROR;
     }
-    board->sleep_ms(board->context, DEEP_SLEEP_SETTLE_MS);
     return EPD_OK;
 }
 
@@ -148,6 +148,9 @@ enum epd_status epd_update(const struct board_ops *board, const struct frame *on
         pulse_reset(board);
     }
     if (power_off_after) {
+        board->sleep_ms(board->context, POWER_OFF_SETTLE_MS);
+        board->set_line(board->context, BOARD_LINE_RST, 0); // no 3.3 V into an unpowered chip
+        board->set_line(board->context, BOARD_LINE_DC, 0);
         board->set_line(board->context, BOARD_LINE_PWR, 0);
     }
     return status;
