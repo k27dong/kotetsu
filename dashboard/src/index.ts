@@ -34,7 +34,7 @@ async function login(request: Request, env: Env, now: Date): Promise<Response> {
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) return new Response(null, { status: 404 });
 
     const now = requestTime(request, env);
     if (request.method === "POST" && url.pathname === "/api/login") {
