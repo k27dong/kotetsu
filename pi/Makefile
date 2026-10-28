@@ -2,7 +2,12 @@ SANITIZE ?= 0
 RELEASE ?= 0
 PREFIX ?= /usr/local
 ifeq ($(SANITIZE),1)
+ifeq ($(RELEASE),1)
+$(error SANITIZE=1 and RELEASE=1 can't be combined)
+endif
 BUILD ?= build-asan
+else ifeq ($(RELEASE),1)
+BUILD ?= build-release
 else
 BUILD ?= build
 endif
@@ -15,21 +20,27 @@ PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 SYSTEM := $(shell uname -s)
 ifeq ($(SYSTEM),Linux)
 PACKAGES += libgpiod
-SRCS += $(wildcard src/panel/display_epd.c src/panel/board_linux.c)
 else ifeq ($(SYSTEM),Darwin)
-SRCS += $(wildcard src/panel/display_png.c)
-export SDKROOT := /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+SDKROOT ?= $(shell xcrun --show-sdk-path)
+export SDKROOT
 PKG_CONFIG_PATH := $(shell brew --prefix curl)/lib/pkgconfig$(if $(PKG_CONFIG_PATH),:$(PKG_CONFIG_PATH))
 endif
 
 # Make 3.81's $(shell) sees only the starting environment, so the path is passed in.
-PACKAGE_CFLAGS := $(shell PKG_CONFIG_PATH='$(PKG_CONFIG_PATH)' pkg-config --cflags $(PACKAGES))
-LDLIBS := $(shell PKG_CONFIG_PATH='$(PKG_CONFIG_PATH)' pkg-config --libs $(PACKAGES))
+PKG_CONFIG := PKG_CONFIG_PATH='$(PKG_CONFIG_PATH)' pkg-config
+MISSING_PACKAGES := $(strip $(foreach package,$(PACKAGES), \
+	$(if $(shell $(PKG_CONFIG) --exists $(package) && echo found),,$(package))))
+ifneq ($(MISSING_PACKAGES),)
+$(error pkg-config can't find: $(MISSING_PACKAGES))
+endif
+PACKAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(PACKAGES))
+LDLIBS := $(shell $(PKG_CONFIG) --libs $(PACKAGES))
 
+# glibc hides POSIX functions under -std=c23 unless _DEFAULT_SOURCE is defined.
 CFLAGS := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvla \
 	-Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough \
 	-finput-charset=UTF-8 -fexec-charset=UTF-8 \
-	-Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
+	-D_DEFAULT_SOURCE -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
 DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
 LDFLAGS :=
 ifeq ($(RELEASE),1)
