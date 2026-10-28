@@ -12,12 +12,20 @@ mkdir -p "$font_dir"
 download_dir=$(mktemp -d "$font_dir/.download.XXXXXX")
 trap 'rm -rf "$download_dir"' EXIT
 
+sha256_of() {
+    sha256sum "$1" | cut -d ' ' -f 1
+}
+
 check_sha256() {
-    actual=$(sha256sum "$download_dir/$1" | cut -d ' ' -f 1)
+    actual=$(sha256_of "$download_dir/$1")
     if [ "$actual" != "$2" ]; then
         echo "${0##*/}: $1 has SHA-256 $actual, expected $2" >&2
         exit 1
     fi
+}
+
+in_place() {
+    [ -f "$font_dir/$1" ] && [ "$(sha256_of "$font_dir/$1")" = "$2" ]
 }
 
 install_font() {
@@ -25,10 +33,14 @@ install_font() {
     mv "$download_dir/$1" "$font_dir/$1"
 }
 
-curl -fsSL -o "$download_dir/LXGWWenKaiGBScreen.ttf" "$WENKAI_URL"
-install_font LXGWWenKaiGBScreen.ttf "$WENKAI_SHA256"
+if ! in_place LXGWWenKaiGBScreen.ttf "$WENKAI_SHA256"; then
+    curl -fsSL -o "$download_dir/LXGWWenKaiGBScreen.ttf" "$WENKAI_URL"
+    install_font LXGWWenKaiGBScreen.ttf "$WENKAI_SHA256"
+fi
 
-curl -fsSL -o "$download_dir/Inter-4.1.zip" "$INTER_ZIP_URL"
-check_sha256 Inter-4.1.zip "$INTER_ZIP_SHA256"
-unzip -p "$download_dir/Inter-4.1.zip" extras/ttf/Inter-SemiBold.ttf >"$download_dir/Inter-SemiBold.ttf"
-install_font Inter-SemiBold.ttf "$INTER_SHA256"
+if ! in_place Inter-SemiBold.ttf "$INTER_SHA256"; then
+    curl -fsSL -o "$download_dir/Inter-4.1.zip" "$INTER_ZIP_URL"
+    check_sha256 Inter-4.1.zip "$INTER_ZIP_SHA256"
+    unzip -p "$download_dir/Inter-4.1.zip" extras/ttf/Inter-SemiBold.ttf >"$download_dir/Inter-SemiBold.ttf"
+    install_font Inter-SemiBold.ttf "$INTER_SHA256"
+fi
