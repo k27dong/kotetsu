@@ -10,6 +10,7 @@
 
 #include "calendar/clock.h"
 #include "config.h"
+#include "json.h"
 #include "log.h"
 #include "render/text.h"
 
@@ -118,19 +119,17 @@ size_t warning_parse_imgw(const char *json, int64_t now_s, char labels[][WARNING
     size_t found_count = 0;
     const cJSON *entry;
     cJSON_ArrayForEach(entry, root) {
-        const char *event =
-                cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(entry, "nazwa_zdarzenia"));
-        const cJSON *teryt = cJSON_GetObjectItemCaseSensitive(entry, "teryt");
+        const char *event = cJSON_GetStringValue(json_member(entry, "nazwa_zdarzenia"));
+        const cJSON *teryt = json_member(entry, "teryt");
         struct imgw_warning warning = {};
         int64_t start_s = 0;
         int64_t end_s = 0;
         if (event == nullptr || !cJSON_IsArray(teryt) ||
-            !read_level(cJSON_GetObjectItemCaseSensitive(entry, "stopien"), &warning.level) ||
-            !read_warsaw_time(cJSON_GetObjectItemCaseSensitive(entry, "obowiazuje_od"), &start_s) ||
-            !read_warsaw_time(cJSON_GetObjectItemCaseSensitive(entry, "obowiazuje_do"), &end_s) ||
-            !read_warsaw_time(cJSON_GetObjectItemCaseSensitive(entry, "opublikowano"),
-                              &warning.published_s)) {
-            const char *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(entry, "id"));
+            !read_level(json_member(entry, "stopien"), &warning.level) ||
+            !read_warsaw_time(json_member(entry, "obowiazuje_od"), &start_s) ||
+            !read_warsaw_time(json_member(entry, "obowiazuje_do"), &end_s) ||
+            !read_warsaw_time(json_member(entry, "opublikowano"), &warning.published_s)) {
+            const char *id = cJSON_GetStringValue(json_member(entry, "id"));
             log_warning("skipping IMGW warning %s, which doesn't parse",
                         id != nullptr ? id : "with no id");
             continue;

@@ -99,6 +99,13 @@ static bool read_now(const cJSON *root, struct dashboard_now *now) {
         log_error("the dashboard's full_refresh is neither a number nor null");
         return false;
     }
+    int64_t cleanup_minute = 0;
+    if (!json_whole_number(json_member(root, "cleanupMinute"), &cleanup_minute) ||
+        cleanup_minute < 0 || cleanup_minute >= MINUTES_PER_DAY) {
+        log_error("the dashboard's cleanupMinute isn't a minute of the day");
+        return false;
+    }
+    now->cleanup_minute = (int)cleanup_minute;
     return true;
 }
 

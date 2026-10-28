@@ -17,6 +17,7 @@ struct dashboard_now {
     enum small_icon greeting_icon;
     char greeting_text[GREETING_TEXT_BYTES];
     int64_t full_refresh; // 0 when the dashboard sent null
+    int cleanup_minute;   // of the Warsaw day
 };
 
 enum dashboard_status {

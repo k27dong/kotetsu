@@ -32,7 +32,7 @@
 #define WIRELESS_PATH    "/proc/net/wireless"
 #define TEMPERATURE_PATH "/sys/class/thermal/thermal_zone0/temp"
 
-static constexpr int CLEANUP_MINUTE_OF_DAY = 10 * 60;
+static constexpr int CLEANUP_MINUTE_DEFAULT = 10 * 60; // halfway between 04:00 and 16:00
 static constexpr size_t LAST_ERROR_BYTES = 128;
 static constexpr size_t REPORT_JSON_BYTES = 1024;
 
@@ -73,13 +73,13 @@ struct app {
     bool normal_screen_ticked;
     struct civil_date last_tick_date;
     int last_tick_minute;
+    int cleanup_minute;
     bool cleanup_due;
     bool waiting_for_greeting;
     int64_t waiting_since_s;
     int64_t reported_too_long_id;
     int64_t last_too_long_id;
     bool clock_wait_logged;
-    bool tick_failed;
     char last_error[LAST_ERROR_BYTES];
 };
 
@@ -90,7 +90,6 @@ static const struct phrase NO_PHRASE = {};
     va_start(arguments, format);
     vsnprintf(app->last_error, sizeof app->last_error, format, arguments);
     va_end(arguments);
-    app->tick_failed = true;
 }
 
 static const char *dashboard_problem(enum dashboard_status status) {
@@ -145,6 +144,15 @@ static void restore(struct app *app) {
     if (json_whole_number(json_member(root, "fullRefresh"), &full_refresh)) {
         app->full_refresh_done = full_refresh;
     }
+    if (json_member(root, "cleanupMinute") != nullptr) {
+        int64_t minute = 0;
+        if (json_whole_number(json_member(root, "cleanupMinute"), &minute) && minute >= 0 &&
+            minute < MINUTES_PER_DAY) {
+            app->cleanup_minute = (int)minute;
+        } else {
+            log_warning("the saved clean-up minute is unusable; starting without it");
+        }
+    }
     const cJSON *weather = json_member(root, "weather");
     int64_t fetched_s = 0;
     int64_t now_c = 0;
@@ -178,6 +186,7 @@ static void save_state(struct app *app) {
     if (app->full_refresh_done != 0) {
         cJSON_AddNumberToObject(root, "fullRefresh", (double)app->full_refresh_done);
     }
+    cJSON_AddNumberToObject(root, "cleanupMinute", app->cleanup_minute);
     if (app->weather.have_report) {
         const struct weather_report *report = &app->weather.report;
         cJSON *weather = cJSON_AddObjectToObject(root, "weather");
@@ -207,6 +216,7 @@ struct app *app_create(const struct app_config *config, const struct app_ports *
     app->ports = *ports;
     app->state_path = g_strdup(config->state_path);
     app->fonts = fonts;
+    app->cleanup_minute = CLEANUP_MINUTE_DEFAULT;
     if (state_load(app->state_path, &app->state)) {
         restore(app);
     }
@@ -242,6 +252,7 @@ static void poll_dashboard(struct app *app, int64_t now_s) {
     app->greeting.icon = answer.greeting_icon;
     memcpy(app->greeting.text, answer.greeting_text, sizeof app->greeting.text);
     app->full_refresh_asked = answer.full_refresh;
+    app->cleanup_minute = answer.cleanup_minute;
     app->answered = true;
     app->answered_on = clock_warsaw_date(now_s);
 }
@@ -259,7 +270,7 @@ static void fetch_weather(struct app *app, int64_t now_s) {
 static void note_cleanup_crossing(struct app *app, int64_t now_s, struct civil_date today) {
     const int minute = clock_warsaw_minute_of_day(now_s);
     if (app->normal_screen_ticked && same_date(app->last_tick_date, today) &&
-        app->last_tick_minute < CLEANUP_MINUTE_OF_DAY && minute >= CLEANUP_MINUTE_OF_DAY) {
+        app->last_tick_minute < app->cleanup_minute && minute >= app->cleanup_minute) {
         app->cleanup_due = true;
     }
     app->normal_screen_ticked = true;
@@ -269,8 +280,8 @@ static void note_cleanup_crossing(struct app *app, int64_t now_s, struct civil_d
 
 static bool wifi_setup_screen(struct app *app) {
     const enum wifi_state state = app->ports.read_wifi(app->ports.context);
-    const bool read_twice = state == app->wifi; // Comitup reports HOTSPOT briefly at every start
-    if (!read_twice) {
+    const bool unchanged = state == app->wifi;
+    if (!unchanged) {
         log_info("wi-fi %s", wifi_state_name(state));
         app->wifi = state;
     }
@@ -278,7 +289,7 @@ static bool wifi_setup_screen(struct app *app) {
         return app->glass.wifi_setup; // an attempt made from the hotspot keeps the setup screen
     }
     if (state == WIFI_STATE_HOTSPOT) {
-        return app->glass.wifi_setup || read_twice;
+        return app->glass.wifi_setup || unchanged; // Comitup reports HOTSPOT briefly at every start
     }
     return false;
 }
@@ -371,6 +382,7 @@ static bool show(struct app *app, int64_t now_s, const struct frame *next, enum 
     if (!app->ports.show(app->ports.context, &app->state.on_glass, next, kind)) {
         note_error(app, "panel refresh failed");
         app->state.history.glass_known = false; // the glass and the panel's memory are unknown now
+        app->state.history.last_refresh_s = now_s; // the panel was driven, so the retry waits too
         return false;
     }
     refresh_record(&app->state.history, kind, now_s);
@@ -438,6 +450,7 @@ static void upload_report(struct app *app, const struct frame *frame, int64_t to
                 app->ports.upload(app->ports.context, png, length, json);
         if (status == DASHBOARD_OK) {
             app->reported_too_long_id = too_long_id;
+            app->last_error[0] = '\0';
         } else {
             note_error(app, "upload failed: %s", dashboard_problem(status));
         }
@@ -445,7 +458,7 @@ static void upload_report(struct app *app, const struct frame *frame, int64_t to
     free(png);
 }
 
-static void run_tick(struct app *app, int64_t now_s) {
+void app_tick(struct app *app, int64_t now_s) {
     const bool wifi_setup = wifi_setup_screen(app);
     if (!wifi_setup && !app->ports.clock_synced(app->ports.context)) {
         if (!app->clock_wait_logged) {
@@ -512,13 +525,5 @@ static void run_tick(struct app *app, int64_t now_s) {
     } else if (too_long_id != 0 && too_long_id != app->reported_too_long_id &&
                app->state.history.glass_known) {
         upload_report(app, &app->state.on_glass, too_long_id, missing_glyphs_id);
-    }
-}
-
-void app_tick(struct app *app, int64_t now_s) {
-    app->tick_failed = false;
-    run_tick(app, now_s);
-    if (!app->tick_failed) {
-        app->last_error[0] = '\0';
     }
 }

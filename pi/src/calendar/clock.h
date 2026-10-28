@@ -4,6 +4,8 @@
 
 #include "model.h"
 
+static constexpr int MINUTES_PER_DAY = 24 * 60;
+
 int64_t clock_now(void);
 void clock_set_override(int64_t start_s);
 bool clock_is_overridden(void);
