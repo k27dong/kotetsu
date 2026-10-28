@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+state_file=/run/kotetsu/wifi-state
+temporary_file=$state_file.tmp
+
+if ! { printf '%s\n' "$1" >"$temporary_file" && mv "$temporary_file" "$state_file"; }; then
+    # Comitup discards the callback's output, so the journal is the only place a failure shows
+    logger -p user.err -t kotetsu-wifi "can't write $state_file"
+    exit 1
+fi

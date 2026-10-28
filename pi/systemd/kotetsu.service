@@ -1,0 +1,18 @@
+[Unit]
+Description=kotetsu e-paper screen
+
+[Service]
+User=kotetsu
+SupplementaryGroups=gpio spi
+LoadCredential=pi-key:/etc/kotetsu/pi-key
+RuntimeDirectory=kotetsu
+# Comitup reports each Wi-Fi state once, so a restart must not delete the last one
+RuntimeDirectoryPreserve=yes
+StateDirectory=kotetsu
+Environment=TZ=Europe/Warsaw
+ExecStart=/usr/local/bin/kotetsu
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
