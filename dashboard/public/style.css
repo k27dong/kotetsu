@@ -138,10 +138,12 @@ button.danger {
 }
 
 button.link {
+  min-width: 44px;
   min-height: 44px;
   height: auto;
   padding: 0;
   border: 0;
+  justify-content: flex-start;
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -290,6 +292,8 @@ label.choice {
 .slot .ref {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  min-width: 44px;
   min-height: 44px;
   margin: -10px 0;
   padding-left: 12px;

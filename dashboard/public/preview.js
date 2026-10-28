@@ -13,6 +13,7 @@ const HAN = /\p{Script=Han}/u;
 const DIGIT = /\p{Nd}/u;
 const WORD = /[\p{L}\p{N}'’-]/u;
 const PUNCTUATION = /[\p{P}\p{S}]/u;
+const SPACE = /\s/u;
 const HANGING = /[。，！？]\s*$/u;
 const BREAK_PUNCTUATION = /[。，！？、；：]/u;
 const NO_LINE_START = /[。，、：；！？」』）】》〉〕〗’”,.;:!?)\]}%…]/u;
@@ -108,13 +109,15 @@ function blockFits(ctx, sizePx, lines) {
 function punctuationCut(ctx, sizePx, line) {
   const characters = [...line];
   const width = lineWidth(ctx, sizePx, line);
-  let cut = -1;
+  let cut = null;
   for (let i = 0; i < characters.length; i++) {
     if (!BREAK_PUNCTUATION.test(characters[i])) continue;
-    if (i + 1 === characters.length) return -1;
-    if (PUNCTUATION.test(characters[i + 1])) continue; // a closing quote stays with its punctuation
+    let resume = i + 1;
+    while (resume < characters.length && SPACE.test(characters[resume])) resume++;
+    if (resume === characters.length) return null;
+    if (PUNCTUATION.test(characters[resume])) continue; // a closing quote stays with its punctuation
     const trailingX = lineWidth(ctx, sizePx, characters.slice(0, i + 1).join(""));
-    if (trailingX * 4 >= width * 3) cut = i + 1;
+    if (trailingX * 4 >= width * 3) cut = { after: i + 1, spaces: resume - i - 1 };
   }
   return cut;
 }
@@ -126,8 +129,8 @@ function preferPunctuationBreaks(ctx, sizePx, text, lines) {
   for (let i = 0; i + 1 < count; i++) {
     if (current[i + 1].paragraphStart) continue;
     const cut = punctuationCut(ctx, sizePx, current[i].text);
-    if (cut < 0) continue;
-    const moved = characters.toSpliced(current[i].start + cut, 0, "\n");
+    if (cut === null) continue;
+    const moved = characters.toSpliced(current[i].start + cut.after, cut.spaces, "\n");
     const next = layoutLines(ctx, sizePx, moved.join(""));
     if (next.length !== count || !blockFits(ctx, sizePx, next)) continue;
     characters = moved;

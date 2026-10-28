@@ -302,7 +302,7 @@ function healthRows(report, special, now) {
 async function nowPage() {
   const content = h("div");
   const trouble = h("p", { class: "error" });
-  const view = h("section", { class: "now" }, content, trouble);
+  const view = h("section", { class: "now" }, trouble, content);
   let wall = { at: null, node: null };
   let lastLoad = 0;
   let loading = null;
@@ -369,7 +369,7 @@ async function nowPage() {
                 onclick: (event) =>
                   perform(event.target, messages, async () => {
                     await api(`/api/phrases/${next.id}/show`, "POST");
-                    await load();
+                    await loadAgain();
                   }),
               },
               "Show now",
@@ -380,7 +380,7 @@ async function nowPage() {
                 onclick: (event) =>
                   perform(event.target, messages, async () => {
                     await api("/api/skip", "POST");
-                    await load();
+                    await loadAgain();
                   }),
               },
               "Skip",
@@ -422,6 +422,11 @@ async function nowPage() {
   }
   function reload() {
     load().catch((error) => showFailure(trouble, error));
+  }
+  async function loadAgain() {
+    // a load already in flight was asked before the action, so its answer can't show the action
+    if (loading !== null) await loading.catch(() => undefined); // its failure is on the page already
+    return load();
   }
 
   await load();
