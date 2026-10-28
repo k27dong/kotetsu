@@ -82,7 +82,9 @@ header.top nav {
 header.top a {
   flex-shrink: 0;
   min-width: 44px;
-  padding: 16px 0 15px;
+  margin: 0 -4px; /* each box reaches 4 px into its gaps, so "Now" fills 44 px with its text in place */
+  padding: 16px 4px 15px;
+  text-align: center;
   font: 600 16px/1 var(--figure);
   color: inherit;
   text-decoration: none;

@@ -414,6 +414,8 @@ async function nowPage() {
     if (loading === null) {
       lastLoad = Date.now();
       trouble.textContent = "";
+      messages.textContent = "";
+      refreshMessages.textContent = "";
       loading = api("/api/status")
         .then((status) => fill(status, new Date()))
         .finally(() => {
