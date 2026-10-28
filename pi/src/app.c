@@ -269,14 +269,18 @@ static void note_cleanup_crossing(struct app *app, int64_t now_s, struct civil_d
 
 static bool wifi_setup_screen(struct app *app) {
     const enum wifi_state state = app->ports.read_wifi(app->ports.context);
-    if (state != app->wifi) {
+    const bool read_twice = state == app->wifi; // Comitup reports HOTSPOT briefly at every start
+    if (!read_twice) {
         log_info("wi-fi %s", wifi_state_name(state));
         app->wifi = state;
     }
     if (state == WIFI_STATE_CONNECTING) {
         return app->glass.wifi_setup; // an attempt made from the hotspot keeps the setup screen
     }
-    return state == WIFI_STATE_HOTSPOT;
+    if (state == WIFI_STATE_HOTSPOT) {
+        return app->glass.wifi_setup || read_twice;
+    }
+    return false;
 }
 
 static bool compose(struct app *app, struct civil_date today, struct screen_model *model) {
@@ -442,12 +446,6 @@ static void upload_report(struct app *app, const struct frame *frame, int64_t to
 }
 
 static void run_tick(struct app *app, int64_t now_s) {
-    if (!app->ticked) {
-        app->ticked = true;
-        if (app->state.history.last_refresh_s > now_s) {
-            app->state.history.last_refresh_s = now_s; // the clock went back while the Pi was off
-        }
-    }
     const bool wifi_setup = wifi_setup_screen(app);
     if (!wifi_setup && !app->ports.clock_synced(app->ports.context)) {
         if (!app->clock_wait_logged) {
@@ -455,6 +453,12 @@ static void run_tick(struct app *app, int64_t now_s) {
             app->clock_wait_logged = true;
         }
         return;
+    }
+    if (!app->ticked) {
+        app->ticked = true;
+        if (app->state.history.last_refresh_s > now_s) {
+            app->state.history.last_refresh_s = now_s; // the clock went back while the Pi was off
+        }
     }
     const struct civil_date today = clock_warsaw_date(now_s);
     struct screen_model model = {.wifi_setup = true};
