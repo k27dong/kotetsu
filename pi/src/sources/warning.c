@@ -33,11 +33,13 @@ struct imgw_warning {
 static const struct warning_name WARNING_NAMES[] = {
         {"Silny wiatr", "大风预警"},
         {"Intensywne opady deszczu", "暴雨预警"},
+        {"Silny deszcz z burzami", "暴雨预警"},
         {"Intensywne opady śniegu", "暴雪预警"},
         {"Burze", "雷暴预警"},
+        {"Burze z gradem", "雷暴预警"},
         {"Upał", "高温预警"},
         {"Silny mróz", "严寒预警"},
-        {"Marznące opady", "冻雨预警"},
+        {"Opady marznące", "冻雨预警"},
         {"Oblodzenie", "结冰预警"},
         {"Gęsta mgła", "大雾预警"},
 };

@@ -16,7 +16,7 @@ struct http_part {
     size_t length;
 };
 
-// true once any response arrives, whatever its status; the body is always NUL-terminated
+// true on any response, whatever its status; on true the body is NUL-terminated, "" when empty
 [[nodiscard]] bool http_get(const char *url, const char *bearer, const char *now_header,
                             struct http_response *out);
 [[nodiscard]] bool http_put_multipart(const char *url, const char *bearer, const char *now_header,

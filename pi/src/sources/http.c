@@ -73,6 +73,8 @@ static bool request(const char *url, const char *bearer, const char *now_header,
             curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, (long)HTTP_CONNECT_TIMEOUT_SECONDS) ==
                     CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)HTTP_TOTAL_TIMEOUT_SECONDS) == CURLE_OK &&
+            // without it, a timed-out request still waits for a hung DNS lookup to finish
+            curl_easy_setopt(curl, CURLOPT_QUICK_EXIT, 1L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, MAX_BODY_BYTES) == CURLE_OK &&
