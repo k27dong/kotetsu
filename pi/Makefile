@@ -18,6 +18,7 @@ SRCS := \
 	src/calendar/lunar.c \
 	src/calendar/lunar_table.c \
 	src/log.c \
+	src/panel/epd.c \
 	src/panel/refresh.c \
 	src/panel/state.c \
 	src/render/blocks.c \
@@ -37,6 +38,7 @@ PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
 SYSTEM := $(shell uname -s)
 ifeq ($(SYSTEM),Linux)
+SRCS += src/panel/board_linux.c src/panel/display_epd.c
 PACKAGES += libgpiod
 else ifeq ($(SYSTEM),Darwin)
 SRCS += src/panel/display_png.c
