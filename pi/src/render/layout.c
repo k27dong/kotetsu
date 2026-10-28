@@ -191,38 +191,44 @@ static void shift_gaps(size_t *gaps, size_t gap_count, size_t from, int by) {
     }
 }
 
-// The byte offset just after the last 。，！？、；： in the line's last quarter, or 0 when the
-// line has none there or already ends with one.
-static size_t punctuation_cut(PangoLayout *layout, int line_index) {
+struct cut {
+    size_t after_punctuation;
+    size_t whitespace_bytes;
+};
+
+static struct cut punctuation_cut(PangoLayout *layout, int line_index) {
     PangoLayoutLine *line = pango_layout_get_line_readonly(layout, line_index);
     const char *text = pango_layout_get_text(layout);
     const char *start = text + pango_layout_line_get_start_index(line);
     const char *end = start + pango_layout_line_get_length(line);
     PangoRectangle logical;
     pango_layout_line_get_extents(line, nullptr, &logical);
-    size_t cut = 0;
+    struct cut cut = {};
     for (const char *cursor = start; cursor < end; cursor = g_utf8_next_char(cursor)) {
         if (!is_one_of(g_utf8_get_char(cursor), BREAK_PUNCTUATION,
                        G_N_ELEMENTS(BREAK_PUNCTUATION))) {
             continue;
         }
         const char *after = g_utf8_next_char(cursor);
-        if (after >= end) {
-            return 0;
+        const char *resume = after;
+        while (resume < end && g_unichar_isspace(g_utf8_get_char(resume))) {
+            resume = g_utf8_next_char(resume);
         }
-        if (g_unichar_ispunct(g_utf8_get_char(after))) {
+        if (resume >= end) {
+            return (struct cut){}; // the line already ends with it
+        }
+        if (g_unichar_ispunct(g_utf8_get_char(resume))) {
             continue; // a closing quote or bracket stays with its punctuation
         }
         int trailing_x;
         pango_layout_line_index_to_x(line, (int)(cursor - text), true, &trailing_x);
         if (trailing_x * 4 >= logical.width * 3) {
-            cut = (size_t)(after - text);
+            cut = (struct cut){(size_t)(after - text), (size_t)(resume - after)};
         }
     }
     return cut;
 }
 
-// Moves a wrap back to the punctuation just before it when that costs no size and no line.
 static void prefer_punctuation_breaks(PangoLayout *layout, GString *gapped, size_t *gaps,
                                       size_t gap_count, int size_px) {
     const int lines = pango_layout_get_line_count(layout);
@@ -230,18 +236,23 @@ static void prefer_punctuation_breaks(PangoLayout *layout, GString *gapped, size
         if (pango_layout_line_is_paragraph_start(pango_layout_get_line_readonly(layout, i + 1))) {
             continue;
         }
-        const size_t cut = punctuation_cut(layout, i);
-        if (cut == 0) {
+        const struct cut cut = punctuation_cut(layout, i);
+        if (cut.after_punctuation == 0) {
             continue;
         }
-        g_string_insert_c(gapped, (gssize)cut, '\n');
-        shift_gaps(gaps, gap_count, cut, 1);
+        char *dropped = g_strndup(gapped->str + cut.after_punctuation, cut.whitespace_bytes);
+        g_string_erase(gapped, (gssize)cut.after_punctuation, (gssize)cut.whitespace_bytes);
+        g_string_insert_c(gapped, (gssize)cut.after_punctuation, '\n');
+        shift_gaps(gaps, gap_count, cut.after_punctuation + cut.whitespace_bytes,
+                   1 - (int)cut.whitespace_bytes);
         set_phrase_text(layout, gapped, gaps, gap_count, size_px);
         if (!block_fits(layout, size_px) || pango_layout_get_line_count(layout) != lines) {
-            g_string_erase(gapped, (gssize)cut, 1);
-            shift_gaps(gaps, gap_count, cut + 1, -1);
+            g_string_erase(gapped, (gssize)cut.after_punctuation, 1);
+            g_string_insert(gapped, (gssize)cut.after_punctuation, dropped);
+            shift_gaps(gaps, gap_count, cut.after_punctuation + 1, (int)cut.whitespace_bytes - 1);
             set_phrase_text(layout, gapped, gaps, gap_count, size_px);
         }
+        g_free(dropped);
     }
 }
 

@@ -272,8 +272,7 @@ static void draw_counter_number(cairo_t *cr, PangoContext *context, const char *
     const struct text_metrics metrics = measure(number);
     const double centred_left = COUNTER_CENTRE_X - (metrics.ink_left + metrics.ink_right) / 2;
     const double pair_width = metrics.advance + COUNTER_UNIT_GAP + unit_advance;
-    const double left =
-            MIN(centred_left, COUNTER_RIGHT_LIMIT - pair_width); // centring yields first
+    const double left = MIN(centred_left, COUNTER_RIGHT_LIMIT - pair_width);
     const double baseline = COUNTER_CENTRE_Y - (metrics.ink_top + metrics.ink_bottom) / 2;
     layout_show(cr, number, left, baseline);
     layout_show(cr, unit, left + metrics.advance + COUNTER_UNIT_GAP, baseline);
