@@ -1,4 +1,3 @@
-import { LunarMonth, Solar } from "lunar-javascript";
 import { activeOverride, rotationPhrase, scheduledPhrase } from "./api_pi";
 import {
   clearFromWall,
@@ -10,6 +9,7 @@ import {
   readSpecialDays,
 } from "./db";
 import type { RouteContext } from "./index";
+import { solarOf } from "./lunar";
 import {
   counterDays,
   greetingFor,
@@ -19,7 +19,7 @@ import {
   type PhraseRow,
   type SpecialDay,
 } from "./rules";
-import { parseDate, slotAt, warsawDate, type PhraseTimes } from "./time";
+import { parseDate, shiftDate, slotAt, warsawDate, type PhraseTimes } from "./time";
 import {
   InputError,
   jsonBody,
@@ -47,44 +47,36 @@ function notFound(): Response {
   return new Response(null, { status: 404 });
 }
 
-function isoDay(utcMs: number): string {
-  return new Date(utcMs).toISOString().slice(0, 10);
-}
-
-function solarDate(year: number, month: number, day: number): string | null {
+function yearlyDate(year: number, month: number, day: number): string | null {
   const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCMonth() === month - 1 ? isoDay(date.getTime()) : null;
+  return date.getUTCMonth() === month - 1 ? date.toISOString().slice(0, 10) : null;
 }
 
 function lunarDate(lunarYear: number, month: number, day: number): string | null {
-  const lunarMonth = LunarMonth.fromYm(lunarYear, month); // a positive month is never the leap one
-  if (lunarMonth === null) return null;
-  const first = lunarMonth.getFirstJulianDay();
-  const length = lunarMonth.next(1).getFirstJulianDay() - first;
-  return Solar.fromJulianDay(first + Math.min(day, length) - 1).toYmd();
+  const date = solarOf(lunarYear, month, day, false);
+  // a day-30 special day takes the last day of a 29-day month
+  return date ?? (day === 30 ? solarOf(lunarYear, month, 29, false) : null);
 }
 
 function nextSpecialDay(
   today: string,
   specialDays: SpecialDay[],
 ): (Greeting & { date: string }) | null {
-  const { year, month, day } = parseDate(today);
+  const { year } = parseDate(today);
   const dates = new Set<string>();
   // the lunar year that began last winter may still be running
   for (const candidateYear of [year - 1, year, year + 1]) {
     for (const special of specialDays) {
       const date =
         special.kind === "yearly"
-          ? solarDate(candidateYear, special.month, special.day)
+          ? yearlyDate(candidateYear, special.month, special.day)
           : lunarDate(candidateYear, special.month, special.day);
       if (date !== null && date >= today) dates.add(date);
     }
   }
   const days = counterDays(today);
   const milestone = Math.ceil(days / 1000) * 1000;
-  if (milestoneText(milestone) !== null) {
-    dates.add(isoDay(Date.UTC(year, month - 1, day + milestone - days)));
-  }
+  if (milestoneText(milestone) !== null) dates.add(shiftDate(today, milestone - days));
   // greetingFor settles ranks and {n}; asking it about these dates alone bounds its lunar work
   for (const date of [...dates].toSorted()) {
     const greeting = greetingFor(date, specialDays);
@@ -158,16 +150,12 @@ export async function listPhrases({ request, env }: RouteContext): Promise<Respo
   );
 }
 
-function insertPins(
-  db: D1Database,
-  phraseId: number | null,
-  pins: PinFields[],
-): D1PreparedStatement {
+function insertPins(db: D1Database, phraseId: number, pins: PinFields[]): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO pins (phrase_id, kind, date, month, day, weekday, slot)
-       SELECT coalesce(?, (SELECT max(id) FROM phrases)), value ->> 'kind', value ->> 'date',
-         value ->> 'month', value ->> 'day', value ->> 'weekday', value ->> 'slot'
+       SELECT ?, value ->> 'kind', value ->> 'date', value ->> 'month', value ->> 'day',
+         value ->> 'weekday', value ->> 'slot'
        FROM json_each(?) ORDER BY key`,
     )
     .bind(phraseId, JSON.stringify(pins));
@@ -175,15 +163,17 @@ function insertPins(
 
 export async function createPhrase({ request, env, now }: RouteContext): Promise<Response> {
   const { text, pins } = phraseInput(await jsonBody(request));
+  const id = await env.DB.prepare(
+    "SELECT coalesce(max(id), 0) + 1 AS id FROM phrases",
+  ).first<number>("id");
+  if (id === null) throw new Error("D1 returned no row for the next phrase id");
   const stamp = now.toISOString();
-  const [inserted] = await env.DB.batch<{ id: number }>([
+  await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO phrases (text, created_at, updated_at) VALUES (?, ?, ?) RETURNING id",
-    ).bind(text, stamp, stamp),
-    insertPins(env.DB, null, pins), // null: the phrase inserted just above, the newest row
+      "INSERT INTO phrases (id, text, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    ).bind(id, text, stamp, stamp),
+    insertPins(env.DB, id, pins),
   ]);
-  const id = inserted?.results[0]?.id;
-  if (id === undefined) throw new Error("D1 didn't return the new phrase's id");
   return Response.json({ id }, { status: 201 });
 }
 
@@ -300,21 +290,23 @@ export async function saveSettings({ request, env, now }: RouteContext): Promise
   const db = env.DB;
   const before = slotAt(now, await readPhraseTimes(db));
   const after = slotAt(now, times);
-  // a slot is its kind and date, so new edges keep its phrase, and Show now runs to the new end
-  const moved = [
+  const statements = [
     db
-      .prepare("UPDATE display_state SET slot_start = ? WHERE id = 1 AND slot_start = ?")
-      .bind(after.start.toISOString(), before.start.toISOString()),
+      .prepare("UPDATE settings SET first_phrase_time = ?, second_phrase_time = ? WHERE id = 1")
+      .bind(times.first, times.second),
+    // Show now and Skip run to the next phrase time, wherever it has moved
     db
       .prepare("UPDATE display_state SET override_until = ? WHERE id = 1 AND override_until = ?")
       .bind(after.end.toISOString(), before.end.toISOString()),
   ];
-  const sameSlot = before.kind === after.kind && before.date === after.date;
-  await db.batch([
-    db
-      .prepare("UPDATE settings SET first_phrase_time = ?, second_phrase_time = ? WHERE id = 1")
-      .bind(times.first, times.second),
-    ...(sameSlot ? moved : []),
-  ]);
+  // a slot is its kind and date, so new edges keep its phrase
+  if (before.kind === after.kind && before.date === after.date) {
+    statements.push(
+      db
+        .prepare("UPDATE display_state SET slot_start = ? WHERE id = 1 AND slot_start = ?")
+        .bind(after.start.toISOString(), before.start.toISOString()),
+    );
+  }
+  await db.batch(statements);
   return Response.json(settingsBody(times));
 }

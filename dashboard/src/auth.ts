@@ -1,10 +1,9 @@
 import type { Env } from "./env";
+import { isIsoTimeWithOffset } from "./time";
 
 const SESSION_COOKIE = "kotetsu_session";
 const SESSION_SECONDS = 365 * 24 * 60 * 60;
 const SESSION_VALUE = new RegExp(String.raw`^${SESSION_COOKIE}=(\d+)\.([\w-]{43})$`);
-const ISO_TIME_WITH_OFFSET =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}(?::\d{2}(?:\.\d{3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const encoder = new TextEncoder();
 
@@ -62,20 +61,6 @@ export async function hasSession(request: Request, env: Env, now: Date): Promise
 export function isPi(request: Request, env: Env): boolean {
   const expected = `Bearer ${secret(env, "PI_KEY")}`;
   return matchesSecret(request.headers.get("Authorization") ?? "", expected);
-}
-
-function isIsoTimeWithOffset(text: string): boolean {
-  const match = ISO_TIME_WITH_OFFSET.exec(text);
-  if (match === null) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const calendar = new Date(Date.UTC(year, month - 1, day)); // Date rolls 02-29 over to 03-01
-  const realDay =
-    calendar.getUTCFullYear() === year &&
-    calendar.getUTCMonth() === month - 1 &&
-    calendar.getUTCDate() === day;
-  return realDay && Number(match[4]) < 24; // Date reads T24:00 as the next day
 }
 
 export function requestTime(request: Request, env: Env): Date {

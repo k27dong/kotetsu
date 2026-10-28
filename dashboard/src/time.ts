@@ -6,6 +6,8 @@ const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PHRASE_TIME = /^\d{2}:\d{2}$/;
+const ISO_TIME_WITH_OFFSET =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}(?::\d{2}(?:\.\d{3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const warsawClock = new Intl.DateTimeFormat("en-US", {
   timeZone: "Europe/Warsaw",
@@ -41,8 +43,22 @@ export function daysBetween(from: string, to: string): number {
   return (utcMidnight(parseDate(to)) - utcMidnight(parseDate(from))) / DAY_MS;
 }
 
-function shiftDate(date: string, days: number): string {
+export function shiftDate(date: string, days: number): string {
   return isoDate(new Date(utcMidnight(parseDate(date)) + days * DAY_MS));
+}
+
+export function isIsoTimeWithOffset(text: string): boolean {
+  const match = ISO_TIME_WITH_OFFSET.exec(text);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const calendar = new Date(Date.UTC(year, month - 1, day)); // Date rolls 02-29 over to 03-01
+  const realDay =
+    calendar.getUTCFullYear() === year &&
+    calendar.getUTCMonth() === month - 1 &&
+    calendar.getUTCDate() === day;
+  return realDay && Number(match[4]) < 24; // Date reads T24:00 as the next day
 }
 
 function warsawWallClock(instant: Date): number {
@@ -87,13 +103,13 @@ export function warsawInstant(date: string, minuteOfDay: number): Date {
   return new Date(real.length > 0 ? Math.min(...real) : wall - before);
 }
 
+export function isPhraseTime(text: string): boolean {
+  return PHRASE_TIME.test(text) && Number(text.slice(0, 2)) < 24 && Number(text.slice(3, 5)) < 60;
+}
+
 function phraseMinute(text: string): number {
-  const hour = Number(text.slice(0, 2));
-  const minute = Number(text.slice(3, 5));
-  if (!PHRASE_TIME.test(text) || hour > 23 || minute > 59) {
-    throw new Error(`A phrase time is HH:MM, not "${text}"`);
-  }
-  return hour * 60 + minute;
+  if (!isPhraseTime(text)) throw new Error(`A phrase time is HH:MM, not "${text}"`);
+  return Number(text.slice(0, 2)) * 60 + Number(text.slice(3, 5));
 }
 
 function phraseMinutes(times: PhraseTimes): { first: number; second: number } {

@@ -1,5 +1,5 @@
 import type { Icon, Pin, PinKind, PinSlot, SpecialDay } from "./rules";
-import { parseDate, type PhraseTimes } from "./time";
+import { isIsoTimeWithOffset, isPhraseTime, parseDate, type PhraseTimes } from "./time";
 
 export class InputError extends Error {}
 
@@ -20,8 +20,10 @@ export type ScreenReport = {
 };
 
 const PHRASE_MAX_CHARACTERS = 500;
+const LAST_ERROR_MAX_CHARACTERS = 1000;
 const ANY_LEAP_YEAR = 2000;
 const GREETING_MAX_BYTES = 63; // the Pi keeps a greeting in 64 bytes, with its terminating NUL
+const WIDEST_YEAR_COUNT = "9999"; // {n} counts years since a four-digit baseYear
 const PIN_KINDS: readonly PinKind[] = ["date", "yearly", "lunar_yearly", "monthly", "weekly"];
 const PIN_SLOTS: readonly PinSlot[] = ["morning", "evening", "all_day"];
 const PIN_DATE_FIELDS = ["date", "month", "day", "weekday"] as const;
@@ -29,8 +31,8 @@ const SPECIAL_DAY_KINDS: readonly SpecialDay["kind"][] = ["yearly", "lunar_yearl
 const ICONS: readonly Icon[] = ["heart", "rings", "cake", "cat", "hearts", "star"];
 const REFRESHES: readonly ScreenReport["refresh"][] = ["full", "partial"];
 const FILTERS: readonly PhraseFilter[] = ["all", "pinned", "english"];
-const PHRASE_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const CONTROL = /\p{Cc}/u;
+const CONTROL_BUT_LINE_FEED = /(?!\n)\p{Cc}/u;
 
 const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 const encoder = new TextEncoder();
@@ -76,7 +78,7 @@ function phraseId(value: unknown, what: string): number {
 function cleanText(value: unknown, what: string): string {
   if (typeof value !== "string") throw new InputError(`${what} must be text`);
   if (!value.isWellFormed()) throw new InputError(`${what} has a lone surrogate`);
-  return value.normalize("NFC").trim(); // trim() also strips U+3000, the full-width space
+  return value.normalize("NFC").replaceAll("\r\n", "\n").trim(); // trim() also strips U+3000
 }
 
 function calendarDate(value: unknown, what: string): string {
@@ -95,14 +97,14 @@ function monthAndDay(
   what: string,
 ): { month: number; day: number } {
   const month = wholeNumber(fields.month, `${what}'s month`, 1, 12);
-  const daysInMonth = new Date(Date.UTC(ANY_LEAP_YEAR, month, 0)).getUTCDate(); // day 0 of the next month
+  const daysInMonth = new Date(Date.UTC(ANY_LEAP_YEAR, month, 0)).getUTCDate();
   const lastDay = kind === "lunar_yearly" ? 30 : daysInMonth;
   return { month, day: wholeNumber(fields.day, `${what}'s day`, 1, lastDay) };
 }
 
 function isoTime(value: unknown, what: string): string {
-  if (typeof value !== "string" || !ISO_TIME.test(value) || Number.isNaN(Date.parse(value))) {
-    throw new InputError(`${what} must be an ISO 8601 time with an offset`);
+  if (typeof value !== "string" || !isIsoTimeWithOffset(value)) {
+    throw new InputError(`${what} must be a real ISO 8601 time with an offset`);
   }
   return new Date(value).toISOString();
 }
@@ -125,6 +127,9 @@ export async function jsonBody(request: Request): Promise<unknown> {
 
 function phraseText(value: unknown): string {
   const text = cleanText(value, "A phrase");
+  if (CONTROL_BUT_LINE_FEED.test(text)) {
+    throw new InputError("A phrase can't hold control characters other than line breaks");
+  }
   const length = [...text].length;
   if (length === 0 || length > PHRASE_MAX_CHARACTERS) {
     throw new InputError(`A phrase must have 1 to ${PHRASE_MAX_CHARACTERS} characters`);
@@ -184,7 +189,7 @@ export function phraseFilter(value: string | null): PhraseFilter {
 }
 
 function phraseTime(value: unknown, what: string): string {
-  if (typeof value !== "string" || !PHRASE_TIME.test(value)) {
+  if (typeof value !== "string" || !isPhraseTime(value)) {
     throw new InputError(`${what} must be HH:MM, from 00:00 to 23:59`);
   }
   return value;
@@ -200,8 +205,14 @@ export function phraseTimesInput(value: unknown): PhraseTimes {
 
 function greetingText(value: unknown, what: string): string {
   const text = cleanText(value, what);
-  if (text === "" || encoder.encode(text).length > GREETING_MAX_BYTES) {
-    throw new InputError(`${what} must have 1 to ${GREETING_MAX_BYTES} bytes of UTF-8`);
+  if (CONTROL.test(text)) {
+    throw new InputError(`${what} must be one line without control characters`);
+  }
+  const widest = text.replaceAll("{n}", WIDEST_YEAR_COUNT);
+  if (text === "" || encoder.encode(widest).length > GREETING_MAX_BYTES) {
+    throw new InputError(
+      `${what} must have 1 to ${GREETING_MAX_BYTES} bytes of UTF-8, with {n} as four digits`,
+    );
   }
   return text;
 }
@@ -244,6 +255,9 @@ export function screenReport(text: string): ScreenReport {
   const { lastError } = fields;
   if (lastError !== null && typeof lastError !== "string") {
     throw new InputError("lastError must be text or null");
+  }
+  if (lastError !== null && [...lastError].length > LAST_ERROR_MAX_CHARACTERS) {
+    throw new InputError(`lastError must have at most ${LAST_ERROR_MAX_CHARACTERS} characters`);
   }
   return {
     refresh: oneOf(fields.refresh, REFRESHES, "refresh"),
