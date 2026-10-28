@@ -103,7 +103,7 @@ function monthAndDay(
 }
 
 function isoTime(value: unknown, what: string): string {
-  if (typeof value !== "string" || !isIsoTimeWithOffset(value)) {
+  if (typeof value !== "string" || !isIsoTimeWithOffset(value) || Number.isNaN(Date.parse(value))) {
     throw new InputError(`${what} must be a real ISO 8601 time with an offset`);
   }
   return new Date(value).toISOString();
@@ -128,7 +128,7 @@ export async function jsonBody(request: Request): Promise<unknown> {
 function phraseText(value: unknown): string {
   const text = cleanText(value, "A phrase");
   if (CONTROL_BUT_LINE_FEED.test(text)) {
-    throw new InputError("A phrase can't hold control characters other than line breaks");
+    throw new InputError("A phrase can't hold control characters other than line feeds");
   }
   const length = [...text].length;
   if (length === 0 || length > PHRASE_MAX_CHARACTERS) {

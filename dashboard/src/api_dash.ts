@@ -150,30 +150,34 @@ export async function listPhrases({ request, env }: RouteContext): Promise<Respo
   );
 }
 
-function insertPins(db: D1Database, phraseId: number, pins: PinFields[]): D1PreparedStatement {
+function insertPins(
+  db: D1Database,
+  phraseId: number | "newest",
+  pins: PinFields[],
+): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO pins (phrase_id, kind, date, month, day, weekday, slot)
-       SELECT ?, value ->> 'kind', value ->> 'date', value ->> 'month', value ->> 'day',
-         value ->> 'weekday', value ->> 'slot'
+       SELECT coalesce(?, (SELECT max(id) FROM phrases)), value ->> 'kind', value ->> 'date',
+         value ->> 'month', value ->> 'day', value ->> 'weekday', value ->> 'slot'
        FROM json_each(?) ORDER BY key`,
     )
-    .bind(phraseId, JSON.stringify(pins));
+    .bind(phraseId === "newest" ? null : phraseId, JSON.stringify(pins));
 }
 
 export async function createPhrase({ request, env, now }: RouteContext): Promise<Response> {
   const { text, pins } = phraseInput(await jsonBody(request));
-  const id = await env.DB.prepare(
-    "SELECT coalesce(max(id), 0) + 1 AS id FROM phrases",
-  ).first<number>("id");
-  if (id === null) throw new Error("D1 returned no row for the next phrase id");
   const stamp = now.toISOString();
-  await env.DB.batch([
+  const [inserted] = await env.DB.batch<{ id: number }>([
     env.DB.prepare(
-      "INSERT INTO phrases (id, text, created_at, updated_at) VALUES (?, ?, ?, ?)",
-    ).bind(id, text, stamp, stamp),
-    insertPins(env.DB, id, pins),
+      // the id is taken inside the batch, so creates that overlap can't claim the same one
+      `INSERT INTO phrases (id, text, created_at, updated_at)
+       SELECT coalesce(max(id), 0) + 1, ?, ?, ? FROM phrases RETURNING id`,
+    ).bind(text, stamp, stamp),
+    insertPins(env.DB, "newest", pins),
   ]);
+  const id = inserted?.results[0]?.id;
+  if (id === undefined) throw new Error("D1 returned no id for the new phrase");
   return Response.json({ id }, { status: 201 });
 }
 
