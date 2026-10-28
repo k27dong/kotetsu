@@ -37,11 +37,14 @@ static const struct warning_name WARNING_NAMES[] = {
         {"Intensywne opady śniegu", "暴雪预警"},
         {"Burze", "雷暴预警"},
         {"Burze z gradem", "雷暴预警"},
+        {"Silne burze", "雷暴预警"},
+        {"Silne burze z gradem", "雷暴预警"},
         {"Upał", "高温预警"},
         {"Silny mróz", "严寒预警"},
         {"Opady marznące", "冻雨预警"},
         {"Oblodzenie", "结冰预警"},
         {"Gęsta mgła", "大雾预警"},
+        {"Mgła intensywnie osadzająca szadź", "大雾预警"},
 };
 
 const char *warning_label(const char *polish_event) {
