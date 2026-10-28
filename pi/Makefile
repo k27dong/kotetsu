@@ -17,7 +17,9 @@ SRCS := \
 	src/calendar/clock.c \
 	src/calendar/lunar.c \
 	src/calendar/lunar_table.c \
-	src/log.c
+	src/log.c \
+	src/render/fonts.c \
+	src/render/text.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
