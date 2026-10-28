@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kotetsu",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-23",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kotetsu",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "routes": [{ "pattern": "kotetsu.k27dong.com", "custom_domain": true }],
+}

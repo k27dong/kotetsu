@@ -1,0 +1,15 @@
+{
+  "name": "kotetsu-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "tsc --noEmit && prettier --check ."
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261028.1",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "wrangler": "4.154.0"
+  }
+}
