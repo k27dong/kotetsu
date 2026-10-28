@@ -84,6 +84,10 @@ static bool is_intact(const char *path, const struct state_file *file, size_t le
         log_warning("saved state %s fails its checksum", path);
         return false;
     }
+    if (memchr(file->app_json, '\0', sizeof file->app_json) == nullptr) {
+        log_warning("saved state %s holds an app state that isn't a terminated string", path);
+        return false;
+    }
     return true;
 }
 

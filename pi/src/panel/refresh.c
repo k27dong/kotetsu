@@ -1,9 +1,10 @@
 #include "panel/refresh.h"
 
-#include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "config.h"
+#include "log.h"
 
 static enum refresh_kind kind_for(const struct refresh_history *history, bool frames_equal,
                                   enum refresh_reason reason) {
@@ -25,7 +26,8 @@ static enum refresh_kind kind_for(const struct refresh_history *history, bool fr
         }
         return history->partials_since_full < MAX_PARTIALS ? REFRESH_PARTIAL : REFRESH_FULL;
     }
-    unreachable();
+    log_error("unknown refresh reason %d", (int)reason);
+    abort();
 }
 
 struct refresh_decision refresh_decide(const struct refresh_history *history, bool frames_equal,

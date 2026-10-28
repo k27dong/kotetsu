@@ -38,6 +38,10 @@ bool frame_equal(const struct frame *a, const struct frame *b) {
 }
 
 bool frame_is_black(const struct frame *frame, int x, int y) {
+    if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
+        log_error("pixel (%d, %d) is outside the frame", x, y);
+        abort();
+    }
     return (frame->bits[y * ROW_BYTES + x / 8] & (0x80 >> (x % 8))) == 0;
 }
 
