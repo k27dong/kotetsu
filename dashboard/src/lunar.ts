@@ -1,5 +1,5 @@
 import { LunarYear, Solar } from "lunar-javascript";
-import { daysBetween, parseDate } from "./time";
+import { daysBetween, parseDate, shiftDate } from "./time";
 
 export type LunarDate = { month: number; day: number; leap: boolean; monthLength: 29 | 30 };
 
@@ -45,4 +45,19 @@ export function lunarOf(date: string): LunarDate {
     leap: current.leap,
     monthLength,
   };
+}
+
+export function solarOf(
+  lunarYear: number,
+  month: number,
+  day: number,
+  leap: boolean,
+): string | null {
+  const starts = monthStartsOf(lunarYear);
+  // the list opens with the previous year's 11th and 12th months
+  const newYear = starts.findIndex((start) => start.month === 1 && !start.leap);
+  if (newYear === -1) throw new Error(`Lunar year ${lunarYear} has no first month`);
+  const found = starts.slice(newYear).find((start) => start.month === month && start.leap === leap);
+  if (found === undefined || day < 1 || day > lunarOf(found.start).monthLength) return null;
+  return shiftDate(found.start, day - 1);
 }
