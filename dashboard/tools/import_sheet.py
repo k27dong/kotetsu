@@ -1,14 +1,14 @@
-from __future__ import annotations
-
 import argparse
 import os
 import sys
 import unicodedata
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 
+import requests
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
@@ -18,6 +18,7 @@ SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 SHEET_VALUES_URL = (
     "https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/Sheet1"
 )
+SPREADSHEET_ID_ENV = "SPREADSHEET_ID"
 KEY_FILE_FIELD_TO_ENV = {
     "type": "KEY_TYPE",
     "project_id": "PROJECT_ID",
@@ -34,33 +35,56 @@ KEY_FILE_FIELD_TO_ENV = {
 OLD_SCREEN_FULL_LINE_PX = 238  # the old screen fit 15 wide characters, 240 px
 ASCII_PX = 11
 WIDE_PX = 16
-KEEP_BREAK_AFTER = "。！？…，、；：”）》"
+KEEP_BREAK_AFTER = "。！？…，、；：”）》.,;:!?)"
 SEAM_CONTEXT_CHARS = 8
 
 
+def is_blank(row: dict[str, str]) -> bool:
+    return not any(cell.strip() for cell in row.values())
+
+
 def fetch_rows(env: Mapping[str, str]) -> list[dict[str, str]]:
-    """Sheet1's rows keyed by the header; short rows padded, blank rows dropped."""
+    """Sheet1's data rows keyed by the header and padded; rows[i] is Sheet row i + 2."""
+    env_names = [*KEY_FILE_FIELD_TO_ENV.values(), SPREADSHEET_ID_ENV]
+    missing = [name for name in env_names if not env.get(name)]
+    if missing:
+        raise KeyError(f"missing or empty environment variables: {', '.join(missing)}")
     key_file = {field: env[name] for field, name in KEY_FILE_FIELD_TO_ENV.items()}
     # the key may arrive with its newlines escaped
     key_file["private_key"] = key_file["private_key"].replace("\\n", "\n")
     credentials = service_account.Credentials.from_service_account_info(
         key_file, scopes=[SHEETS_READONLY_SCOPE]
     )
-    url = SHEET_VALUES_URL.format(spreadsheet_id=env["SPREADSHEET_ID"])
+    url = SHEET_VALUES_URL.format(spreadsheet_id=env[SPREADSHEET_ID_ENV])
     with AuthorizedSession(credentials) as session:
         response = session.get(url)
-    response.raise_for_status()
-
-    header, *body = response.json()["values"]
-    if not {"id", "content"} <= set(header):
-        raise ValueError(
-            f"Sheet1's first row must name the id and content columns, found {header}"
+    if not response.ok:
+        # raise_for_status() would put the URL, which holds the Sheet ID, in the message
+        raise requests.HTTPError(
+            f"Sheets API answered {response.status_code}: {response.text}",
+            response=response,
         )
-    return [
+
+    values = response.json().get("values")
+    if not values:
+        raise ValueError("Sheet1 is empty")
+    header, *body = values
+    absent = {"id", "content"} - set(header)
+    if absent:
+        raise ValueError(
+            "Sheet1's first row must name the id and content columns,"
+            f" lacks {sorted(absent)}"
+        )
+    repeated = [name for name, count in Counter(header).items() if count > 1]
+    if repeated:
+        raise ValueError(f"Sheet1's header repeats a column name: {repeated}")
+    rows = [
         {name: row[i] if i < len(row) else "" for i, name in enumerate(header)}
         for row in body
-        if any(cell.strip() for cell in row)
     ]
+    if all(is_blank(row) for row in rows):
+        raise ValueError("Sheet1 has a header row but no phrases")
+    return rows
 
 
 def is_hard_wrap(before: str, after: str) -> bool:
@@ -74,13 +98,16 @@ def is_hard_wrap(before: str, after: str) -> bool:
 
 
 def join_hard_wraps(text: str) -> tuple[str, list[str]]:
-    """Join hard wraps; the list has one entry per join, with the text either side."""
+    """The list has one entry per join, showing the text on either side of it."""
     lines = text.split("\n")
     joined = [lines[0]]
     joins: list[str] = []
     for before, after in pairwise(lines):
         if is_hard_wrap(before, after):
-            joined[-1] += after
+            seam = before[-1] + after[0]
+            # the break stood in for the space between two Latin words
+            gap = " " if seam.isascii() and seam.isalnum() else ""
+            joined[-1] += gap + after
             joins.append(f"{before[-SEAM_CONTEXT_CHARS:]}↵{after[:SEAM_CONTEXT_CHARS]}")
         else:
             joined.append(after)
@@ -92,18 +119,26 @@ def sql_string(value: str) -> str:
 
 
 def to_sql(rows: list[dict[str, str]], now_iso: str) -> str:
-    """Raise ValueError for a row D1 would reject: a bad or repeated id, or no text."""
+    """Raise ValueError naming the Sheet row of any row D1 would reject."""
     stamp = sql_string(now_iso)
-    seen_ids: set[int] = set()
+    first_row_of_id: dict[int, int] = {}
     statements: list[str] = []
-    for row in rows:
-        phrase_id = int(row["id"])
-        if phrase_id in seen_ids:
-            raise ValueError(f"duplicate phrase id {phrase_id}")
-        seen_ids.add(phrase_id)
+    for sheet_row, row in enumerate(rows, start=2):  # the header is Sheet row 1
+        if is_blank(row):
+            continue
+        raw_id = row["id"]
+        if not (raw_id.isascii() and raw_id.isdecimal()) or int(raw_id) == 0:
+            raise ValueError(f"Sheet row {sheet_row}: the id is not a positive integer")
+        phrase_id = int(raw_id)
+        if phrase_id in first_row_of_id:
+            raise ValueError(
+                f"Sheet row {sheet_row} repeats id {phrase_id},"
+                f" first used on row {first_row_of_id[phrase_id]}"
+            )
+        first_row_of_id[phrase_id] = sheet_row
         text = unicodedata.normalize("NFC", row["content"]).strip()
         if not text:
-            raise ValueError(f"phrase {phrase_id} has no text")
+            raise ValueError(f"Sheet row {sheet_row} (id {phrase_id}) has no text")
         values = ", ".join((str(phrase_id), sql_string(text), stamp, stamp))
         statements.append(
             "INSERT INTO phrases (id, text, created_at, updated_at) "
@@ -142,8 +177,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     sql = to_sql(phrases, now_iso)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(sql, encoding="utf-8")
+    imported = sum(not is_blank(row) for row in phrases)
     print(
-        f"{len(phrases)} phrases, {phrases_with_joins} with joined line breaks;"
+        f"{imported} phrases, {phrases_with_joins} with joined line breaks;"
         f" SQL written to {out}",
         file=sys.stderr,
     )
