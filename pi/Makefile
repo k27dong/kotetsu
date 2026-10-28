@@ -27,7 +27,11 @@ SRCS := \
 	src/render/layout.c \
 	src/render/screen.c \
 	src/render/text.c \
-	src/render/wifi_qr.c
+	src/render/wifi_qr.c \
+	src/sources/air.c \
+	src/sources/http.c \
+	src/sources/warning.c \
+	src/sources/weather.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
