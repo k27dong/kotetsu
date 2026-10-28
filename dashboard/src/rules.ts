@@ -1,5 +1,5 @@
 import { lunarOf } from "./lunar";
-import { daysBetween, parseDate, warsawDate, type Slot } from "./time";
+import { daysBetween, parseDate, warsawInstant, warsawMinuteOfDay, type Slot } from "./time";
 
 export type PinKind = "date" | "yearly" | "lunar_yearly" | "monthly" | "weekly";
 export type PinSlot = "morning" | "evening" | "all_day";
@@ -33,6 +33,9 @@ export type SpecialDay = {
 };
 export type Greeting = { icon: Icon; text: string };
 
+type PinField = "date" | "month" | "day" | "weekday";
+type Candidate = { pin: Pin; shown: number };
+
 const COUNTER_DAY_ZERO = "2021-09-01";
 const MILESTONE_RANK = 40;
 const MILESTONES = new Map([
@@ -53,15 +56,13 @@ const KIND_PRECEDENCE: Record<PinKind, number> = {
   monthly: 3,
   weekly: 4,
 };
-
-function pinField<Field extends "date" | "month" | "day" | "weekday">(
-  pin: Pin,
-  field: Field,
-): NonNullable<Pin[Field]> {
-  const value = pin[field];
-  if (value === null) throw new Error(`Pin ${pin.id} (${pin.kind}) has no ${field}`);
-  return value;
-}
+const PIN_FIELDS: Record<PinKind, PinField[]> = {
+  date: ["date"],
+  yearly: ["month", "day"],
+  lunar_yearly: ["month", "day"],
+  monthly: ["day"],
+  weekly: ["weekday"],
+};
 
 function isoWeekday(date: string): number {
   const { year, month, day } = parseDate(date);
@@ -75,68 +76,77 @@ function lunarMatches(month: number, day: number, date: string): boolean {
 }
 
 export function pinMatchesDate(pin: Pin, date: string): boolean {
+  const missing = PIN_FIELDS[pin.kind].find((field) => pin[field] === null);
+  if (missing !== undefined) {
+    console.error(`Pin ${pin.id} (${pin.kind}) has no ${missing}; skipped`);
+    return false;
+  }
   const { month, day } = parseDate(date);
   switch (pin.kind) {
     case "date":
-      return pinField(pin, "date") === date;
+      return pin.date === date;
     case "yearly":
-      return pinField(pin, "month") === month && pinField(pin, "day") === day;
+      return pin.month === month && pin.day === day;
     case "lunar_yearly":
-      return lunarMatches(pinField(pin, "month"), pinField(pin, "day"), date);
+      return pin.month !== null && pin.day !== null && lunarMatches(pin.month, pin.day, date);
     case "monthly":
-      return pinField(pin, "day") === day;
+      return pin.day === day;
     case "weekly":
-      return pinField(pin, "weekday") === isoWeekday(date);
+      return pin.weekday === isoWeekday(date);
   }
 }
 
-function shownAtMs(phrase: PhraseRow): number {
+function lastShownMs(phrase: PhraseRow): number | null {
   if (phrase.lastShownAt === null) return -Infinity;
   const time = Date.parse(phrase.lastShownAt);
-  if (Number.isNaN(time)) throw new Error(`Phrase ${phrase.id} has an unreadable last_shown_at`);
+  if (Number.isNaN(time)) {
+    console.error(`Phrase ${phrase.id} has an unreadable last_shown_at; skipped`);
+    return null;
+  }
   return time;
 }
 
-function compareShown(a: PhraseRow, b: PhraseRow): number {
-  const [x, y] = [shownAtMs(a), shownAtMs(b)];
-  return x < y ? -1 : x > y ? 1 : 0;
+function compareNumbers(a: number, b: number): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function withoutTheMorningsPick(candidates: Candidate[], evening: Slot): Candidate[] {
+  // the evening ends where the next morning starts, so that wall time is the first phrase time
+  const morningStart = warsawInstant(evening.date, warsawMinuteOfDay(evening.end)).getTime();
+  return candidates.filter(
+    ({ pin, shown }) =>
+      !(pin.slot === "all_day" && shown >= morningStart && shown < evening.start.getTime()),
+  );
 }
 
 export function pinnedPhraseFor(slot: Slot, pins: Pin[], phrases: PhraseRow[]): number | null {
   const byId = new Map(phrases.map((phrase) => [phrase.id, phrase]));
-  const phraseOf = (pin: Pin): PhraseRow => {
+  const candidates: Candidate[] = [];
+  for (const pin of pins) {
     const phrase = byId.get(pin.phraseId);
     if (phrase === undefined) {
-      throw new Error(`Pin ${pin.id} points at phrase ${pin.phraseId}, which isn't in the list`);
+      console.error(
+        `Pin ${pin.id} points at phrase ${pin.phraseId}, which isn't in the list; skipped`,
+      );
+      continue;
     }
-    return phrase;
-  };
-  const candidates = pins.filter(
-    (pin) =>
-      (pin.slot === "all_day" || pin.slot === slot.kind) &&
-      pinMatchesDate(pin, slot.date) &&
-      phraseOf(pin).problem === null,
-  );
-  const hadTheMorning = (pin: Pin): boolean => {
-    const shown = shownAtMs(phraseOf(pin));
-    return (
-      pin.slot === "all_day" &&
-      Number.isFinite(shown) &&
-      shown < slot.start.getTime() &&
-      warsawDate(new Date(shown)) === slot.date
-    );
-  };
-  // an all-day pin that took the morning leaves the evening to the next one
-  const waiting =
-    slot.kind === "evening" ? candidates.filter((pin) => !hadTheMorning(pin)) : candidates;
+    if (phrase.problem !== null) continue;
+    const shown = lastShownMs(phrase);
+    if (shown === null) continue;
+    if ((pin.slot === "all_day" || pin.slot === slot.kind) && pinMatchesDate(pin, slot.date)) {
+      candidates.push({ pin, shown });
+    }
+  }
+  // the morning's pick is visible only through last_shown_at
+  const waiting = slot.kind === "evening" ? withoutTheMorningsPick(candidates, slot) : candidates;
   const ranked = (waiting.length > 0 ? waiting : candidates).toSorted(
     (a, b) =>
-      Number(a.slot === "all_day") - Number(b.slot === "all_day") ||
-      KIND_PRECEDENCE[a.kind] - KIND_PRECEDENCE[b.kind] ||
-      compareShown(phraseOf(a), phraseOf(b)) ||
-      a.id - b.id,
+      Number(a.pin.slot === "all_day") - Number(b.pin.slot === "all_day") ||
+      KIND_PRECEDENCE[a.pin.kind] - KIND_PRECEDENCE[b.pin.kind] ||
+      compareNumbers(a.shown, b.shown) ||
+      a.pin.id - b.pin.id,
   );
-  return ranked[0]?.phraseId ?? null;
+  return ranked[0]?.pin.phraseId ?? null;
 }
 
 export function rotationPick(
@@ -144,9 +154,14 @@ export function rotationPick(
   pinnedIds: Set<number>,
   random: () => number,
 ): number | null {
-  const eligible = phrases.filter((phrase) => !pinnedIds.has(phrase.id) && phrase.problem === null);
-  const oldest = Math.min(...eligible.map(shownAtMs));
-  const ties = eligible.filter((phrase) => shownAtMs(phrase) === oldest);
+  const eligible: { id: number; shown: number }[] = [];
+  for (const phrase of phrases) {
+    if (pinnedIds.has(phrase.id) || phrase.problem !== null) continue;
+    const shown = lastShownMs(phrase);
+    if (shown !== null) eligible.push({ id: phrase.id, shown });
+  }
+  const oldest = Math.min(...eligible.map(({ shown }) => shown));
+  const ties = eligible.filter(({ shown }) => shown === oldest);
   if (ties.length === 0) return null;
   const pick = ties[Math.floor(random() * ties.length)];
   if (pick === undefined) {
@@ -172,7 +187,8 @@ function fallsOn(special: SpecialDay, date: string): boolean {
 function specialDayGreeting(special: SpecialDay, year: number): Greeting | null {
   if (!special.greeting.includes("{n}")) return { icon: special.icon, text: special.greeting };
   if (special.baseYear === null) {
-    throw new Error(`Special day ${special.id} says {n} but has no base year`);
+    console.error(`Special day ${special.id} says {n} but has no base year; skipped`);
+    return null;
   }
   const n = year - special.baseYear;
   return n < 1 ? null : { icon: special.icon, text: special.greeting.replaceAll("{n}", String(n)) };

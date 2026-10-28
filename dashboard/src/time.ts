@@ -2,7 +2,8 @@ export type PhraseTimes = { first: string; second: string };
 export type Slot = { kind: "morning" | "evening"; date: string; start: Date; end: Date };
 export type CalendarDate = { year: number; month: number; day: number };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PHRASE_TIME = /^\d{2}:\d{2}$/;
 
@@ -71,8 +72,12 @@ export function warsawDate(instant: Date): string {
   return isoDate(new Date(warsawWallClock(instant)));
 }
 
-function warsawInstant(date: string, minuteOfDay: number): Date {
-  const wall = utcMidnight(parseDate(date)) + minuteOfDay * 60 * 1000;
+export function warsawMinuteOfDay(instant: Date): number {
+  return Math.floor((warsawWallClock(instant) % DAY_MS) / MINUTE_MS);
+}
+
+export function warsawInstant(date: string, minuteOfDay: number): Date {
+  const wall = utcMidnight(parseDate(date)) + minuteOfDay * MINUTE_MS;
   const before = warsawOffsetMs(new Date(wall - DAY_MS));
   const after = warsawOffsetMs(new Date(wall + DAY_MS));
   const real = [wall - before, wall - after].filter(
