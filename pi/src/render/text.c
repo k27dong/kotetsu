@@ -51,7 +51,7 @@ size_t text_gap_offsets(const char *text, size_t *out, size_t max) {
         return 0;
     }
     size_t count = 0;
-    gunichar previous = 0; /* neither a digit nor Han */
+    gunichar previous = 0; // neither a digit nor Han
     for (const char *cursor = text; *cursor != '\0'; cursor = g_utf8_next_char(cursor)) {
         const gunichar current = g_utf8_get_char(cursor);
         if ((text_is_digit(previous) && text_is_han(current)) ||

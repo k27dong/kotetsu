@@ -35,6 +35,6 @@ PangoFontMap *fonts_create_map(const char *font_dir) {
             pango_fc_font_map_set_config(PANGO_FC_FONT_MAP(map), config);
         }
     }
-    FcConfigDestroy(config); /* the font map holds its own reference */
+    FcConfigDestroy(config); // the font map holds its own reference
     return map;
 }
