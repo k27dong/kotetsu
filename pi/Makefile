@@ -18,7 +18,10 @@ SRCS := \
 	src/calendar/lunar.c \
 	src/calendar/lunar_table.c \
 	src/log.c \
+	src/panel/refresh.c \
+	src/panel/state.c \
 	src/render/fonts.c \
+	src/render/frame.c \
 	src/render/text.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
@@ -27,6 +30,7 @@ SYSTEM := $(shell uname -s)
 ifeq ($(SYSTEM),Linux)
 PACKAGES += libgpiod
 else ifeq ($(SYSTEM),Darwin)
+SRCS += src/panel/display_png.c
 SDKROOT ?= $(shell xcrun --show-sdk-path)
 export SDKROOT
 PKG_CONFIG_PATH := $(shell brew --prefix curl)/lib/pkgconfig$(if $(PKG_CONFIG_PATH),:$(PKG_CONFIG_PATH))
