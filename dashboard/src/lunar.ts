@@ -13,7 +13,8 @@ const monthStartsByYear = new Map<number, MonthStart[]>();
 function monthStartsOf(year: number): MonthStart[] {
   const cached = monthStartsByYear.get(year);
   if (cached !== undefined) return cached;
-  // 6tail's list runs from the previous 11th month to the next 1st, so it covers the Gregorian year
+  // 6tail's 15 months start at the previous 11th and end at the next 1st, or at this year's 12th
+  // when a leap month falls among them; either way they cover the Gregorian year
   const starts = LunarYear.fromYear(year)
     .getMonths()
     .map((month) => {
