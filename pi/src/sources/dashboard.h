@@ -24,6 +24,7 @@ enum dashboard_status {
     DASHBOARD_UNREACHABLE,
     DASHBOARD_UNAUTHORIZED,
     DASHBOARD_BAD_RESPONSE,
+    DASHBOARD_NO_PHRASE,
 };
 
 struct dashboard_report {

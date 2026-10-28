@@ -18,6 +18,7 @@ SRCS := \
 	src/calendar/clock.c \
 	src/calendar/lunar.c \
 	src/calendar/lunar_table.c \
+	src/json.c \
 	src/log.c \
 	src/panel/epd.c \
 	src/panel/refresh.c \

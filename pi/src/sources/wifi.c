@@ -13,6 +13,8 @@ static const char *const STATE_WORDS[] = {
         [WIFI_STATE_CONNECTED] = "CONNECTED",
 };
 
+static gchar *last_garbled; // the content last warned about, read again every 15 s
+
 static bool read_file(const char *path, gchar **contents) {
     GError *error = nullptr;
     if (g_file_get_contents(path, contents, nullptr, &error)) {
@@ -37,11 +39,21 @@ enum wifi_state wifi_read_state(const char *path) {
             state = (enum wifi_state)i;
         }
     }
-    if (state == WIFI_STATE_UNKNOWN) {
+    if (state != WIFI_STATE_UNKNOWN) {
+        g_free(last_garbled);
+        last_garbled = nullptr;
+    } else if (g_strcmp0(word, last_garbled) != 0) {
         log_warning("%s holds \"%s\", not a Comitup state", path, word);
+        g_free(last_garbled);
+        last_garbled = g_strdup(word);
     }
     g_free(contents);
     return state;
+}
+
+const char *wifi_state_name(enum wifi_state state) {
+    const bool named = (size_t)state < G_N_ELEMENTS(STATE_WORDS) && STATE_WORDS[state] != nullptr;
+    return named ? STATE_WORDS[state] : "UNKNOWN";
 }
 
 bool wifi_read_signal(const char *path, double *out) {

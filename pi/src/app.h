@@ -16,6 +16,7 @@ struct app_ports {
                                     const char *report_json);
     bool (*fetch_weather)(void *context, int64_t now_s, struct weather_inputs *out);
     enum wifi_state (*read_wifi)(void *context);
+    bool (*clock_synced)(void *context);
     bool (*show)(void *context, const struct frame *on_glass, const struct frame *next,
                  enum refresh_kind kind);
 };

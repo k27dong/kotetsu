@@ -16,6 +16,7 @@
 #include "calendar/calendar.h"
 #include "calendar/clock.h"
 #include "config.h"
+#include "json.h"
 #include "log.h"
 #include "model.h"
 #include "panel/refresh.h"
@@ -32,7 +33,6 @@
 #define TEMPERATURE_PATH "/sys/class/thermal/thermal_zone0/temp"
 
 static constexpr int CLEANUP_MINUTE_OF_DAY = 10 * 60;
-static constexpr double LARGEST_EXACT_INTEGER = 9'007'199'254'740'991.0;
 static constexpr size_t LAST_ERROR_BYTES = 128;
 static constexpr size_t REPORT_JSON_BYTES = 1024;
 
@@ -70,70 +70,56 @@ struct app {
     int64_t next_weather_s;
     enum wifi_state wifi;
     bool ticked;
+    bool normal_screen_ticked;
     struct civil_date last_tick_date;
     int last_tick_minute;
     bool cleanup_due;
     bool waiting_for_greeting;
     int64_t waiting_since_s;
     int64_t reported_too_long_id;
+    int64_t last_too_long_id;
     bool clock_wait_logged;
+    bool tick_failed;
     char last_error[LAST_ERROR_BYTES];
 };
 
 static const struct phrase NO_PHRASE = {};
-
-static const char *const WIFI_STATE_NAMES[] = {
-        [WIFI_STATE_UNKNOWN] = "unknown",
-        [WIFI_STATE_HOTSPOT] = "hotspot",
-        [WIFI_STATE_CONNECTING] = "connecting",
-        [WIFI_STATE_CONNECTED] = "connected",
-};
 
 [[gnu::format(printf, 2, 3)]] static void note_error(struct app *app, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
     vsnprintf(app->last_error, sizeof app->last_error, format, arguments);
     va_end(arguments);
+    app->tick_failed = true;
 }
 
-static const char *status_name(enum dashboard_status status) {
+static const char *dashboard_problem(enum dashboard_status status) {
     switch (status) {
     case DASHBOARD_OK:
-        return "ok";
+        return "dashboard ok";
     case DASHBOARD_UNREACHABLE:
-        return "unreachable";
+        return "dashboard unreachable";
     case DASHBOARD_UNAUTHORIZED:
-        return "unauthorized";
+        return "dashboard unauthorized";
     case DASHBOARD_BAD_RESPONSE:
-        return "bad response";
+        return "dashboard bad response";
+    case DASHBOARD_NO_PHRASE:
+        return "no phrase available";
     }
-    return "unknown";
+    return "dashboard unknown status";
 }
 
 static bool same_date(struct civil_date a, struct civil_date b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
+static bool phrase_equal(const struct phrase *a, const struct phrase *b) {
+    return a->id == b->id && strcmp(a->text, b->text) == 0;
+}
+
 static bool usable_text(const char *text, size_t size) {
     const size_t length = strnlen(text, size);
     return length > 0 && length < size && text_is_valid_utf8(text, length);
-}
-
-static const cJSON *member(const cJSON *object, const char *name) {
-    return cJSON_GetObjectItemCaseSensitive(object, name);
-}
-
-static bool read_integer(const cJSON *item, int64_t *out) {
-    if (!cJSON_IsNumber(item)) {
-        return false;
-    }
-    const double value = item->valuedouble;
-    if (value < -LARGEST_EXACT_INTEGER || value > LARGEST_EXACT_INTEGER ||
-        (double)(int64_t)value != value) {
-        return false;
-    }
-    *out = (int64_t)value;
-    return true;
 }
 
 static void restore(struct app *app) {
@@ -144,9 +130,9 @@ static void restore(struct app *app) {
         return;
     }
     int64_t id = 0;
-    const char *text = cJSON_GetStringValue(member(root, "phraseText"));
-    if (member(root, "phraseId") != nullptr) {
-        if (read_integer(member(root, "phraseId"), &id) && id > 0 && text != nullptr &&
+    const char *text = cJSON_GetStringValue(json_member(root, "phraseText"));
+    if (json_member(root, "phraseId") != nullptr) {
+        if (json_whole_number(json_member(root, "phraseId"), &id) && id > 0 && text != nullptr &&
             usable_text(text, PHRASE_TEXT_MAX_BYTES)) {
             app->glass.phrase.id = id;
             g_strlcpy(app->glass.phrase.text, text, sizeof app->glass.phrase.text);
@@ -156,20 +142,21 @@ static void restore(struct app *app) {
         }
     }
     int64_t full_refresh = 0;
-    if (read_integer(member(root, "fullRefresh"), &full_refresh)) {
+    if (json_whole_number(json_member(root, "fullRefresh"), &full_refresh)) {
         app->full_refresh_done = full_refresh;
     }
-    const cJSON *weather = member(root, "weather");
+    const cJSON *weather = json_member(root, "weather");
     int64_t fetched_s = 0;
     int64_t now_c = 0;
     int64_t low_c = 0;
     int64_t high_c = 0;
     int64_t code = 0;
-    if (cJSON_IsObject(weather) && read_integer(member(weather, "fetchedAt"), &fetched_s) &&
-        read_integer(member(weather, "nowC"), &now_c) &&
-        read_integer(member(weather, "lowC"), &low_c) &&
-        read_integer(member(weather, "highC"), &high_c) &&
-        read_integer(member(weather, "code"), &code)) {
+    if (cJSON_IsObject(weather) &&
+        json_whole_number(json_member(weather, "fetchedAt"), &fetched_s) &&
+        json_whole_number(json_member(weather, "nowC"), &now_c) &&
+        json_whole_number(json_member(weather, "lowC"), &low_c) &&
+        json_whole_number(json_member(weather, "highC"), &high_c) &&
+        json_whole_number(json_member(weather, "code"), &code)) {
         app->weather.have_report = true;
         app->weather.report = (struct weather_report){
                 .fetched_s = fetched_s,
@@ -240,7 +227,7 @@ static void poll_dashboard(struct app *app, int64_t now_s) {
     struct dashboard_now answer = {};
     const enum dashboard_status status = app->ports.fetch_now(app->ports.context, &answer);
     if (status != DASHBOARD_OK) {
-        note_error(app, "dashboard %s", status_name(status));
+        note_error(app, "%s", dashboard_problem(status));
         return;
     }
     if (answer.phrase_id <= 0 || !usable_text(answer.phrase_text, sizeof answer.phrase_text) ||
@@ -269,17 +256,13 @@ static void fetch_weather(struct app *app, int64_t now_s) {
     }
 }
 
-static void track_time(struct app *app, int64_t now_s, struct civil_date today) {
+static void note_cleanup_crossing(struct app *app, int64_t now_s, struct civil_date today) {
     const int minute = clock_warsaw_minute_of_day(now_s);
-    if (!app->ticked) {
-        app->ticked = true;
-        if (app->state.history.last_refresh_s > now_s) {
-            app->state.history.last_refresh_s = now_s; // the clock went back while the Pi was off
-        }
-    } else if (same_date(app->last_tick_date, today) &&
-               app->last_tick_minute < CLEANUP_MINUTE_OF_DAY && minute >= CLEANUP_MINUTE_OF_DAY) {
+    if (app->normal_screen_ticked && same_date(app->last_tick_date, today) &&
+        app->last_tick_minute < CLEANUP_MINUTE_OF_DAY && minute >= CLEANUP_MINUTE_OF_DAY) {
         app->cleanup_due = true;
     }
+    app->normal_screen_ticked = true;
     app->last_tick_date = today;
     app->last_tick_minute = minute;
 }
@@ -287,17 +270,17 @@ static void track_time(struct app *app, int64_t now_s, struct civil_date today) 
 static bool wifi_setup_screen(struct app *app) {
     const enum wifi_state state = app->ports.read_wifi(app->ports.context);
     if (state != app->wifi) {
-        log_info("wi-fi %s", WIFI_STATE_NAMES[state]);
+        log_info("wi-fi %s", wifi_state_name(state));
         app->wifi = state;
     }
-    // a connection attempt made from the hotspot keeps the setup screen until it succeeds
-    return state == WIFI_STATE_HOTSPOT || (state == WIFI_STATE_CONNECTING && app->glass.wifi_setup);
+    if (state == WIFI_STATE_CONNECTING) {
+        return app->glass.wifi_setup; // an attempt made from the hotspot keeps the setup screen
+    }
+    return state == WIFI_STATE_HOTSPOT;
 }
 
-static bool compose(struct app *app, struct civil_date today, bool wifi_setup,
-                    struct screen_model *model) {
+static bool compose(struct app *app, struct civil_date today, struct screen_model *model) {
     *model = (struct screen_model){
-            .wifi_setup = wifi_setup,
             .day_of_month = today.day,
             .month_name = calendar_month_name(today.month),
             .weekday_name = calendar_weekday_name(calendar_weekday(today)),
@@ -318,8 +301,6 @@ static bool render(struct app *app, struct screen_model *model, const struct phr
     return screen_render(app->fonts, model, out, report);
 }
 
-// the phrase drawn, or nullptr when rendering failed; *too_long_id names a wanted phrase that
-// had to give way to the one on the glass
 static const struct phrase *render_fitting(struct app *app, struct screen_model *model,
                                            struct frame *out, struct render_report *report,
                                            int64_t *too_long_id) {
@@ -331,9 +312,8 @@ static const struct phrase *render_fitting(struct app *app, struct screen_model 
     if (model->wifi_setup || drawn->id == 0 || report->phrase.fits) {
         return drawn;
     }
-    *too_long_id = drawn->id;
-    log_warning("phrase %" PRId64 " doesn't fit the screen; the glass keeps its phrase", drawn->id);
-    drawn = app->glass.phrase.id != app->wanted.id ? &app->glass.phrase : &NO_PHRASE;
+    *too_long_id = drawn->id; // reported, so the dashboard takes the phrase off the wall
+    drawn = phrase_equal(&app->glass.phrase, &app->wanted) ? &NO_PHRASE : &app->glass.phrase;
     if (!render(app, model, drawn, out, report)) {
         return nullptr;
     }
@@ -357,7 +337,7 @@ static enum refresh_reason reason_for(const struct app *app, const struct screen
         return REFRESH_REASON_FORCED;
     }
     if (!model->wifi_setup) {
-        if (drawn->id != app->glass.phrase.id || strcmp(drawn->text, app->glass.phrase.text) != 0) {
+        if (!phrase_equal(drawn, &app->glass.phrase)) {
             return REFRESH_REASON_NEW_PHRASE;
         }
         if (!same_date(today, app->glass.date)) {
@@ -455,14 +435,21 @@ static void upload_report(struct app *app, const struct frame *frame, int64_t to
         if (status == DASHBOARD_OK) {
             app->reported_too_long_id = too_long_id;
         } else {
-            note_error(app, "upload %s", status_name(status));
+            note_error(app, "upload failed: %s", dashboard_problem(status));
         }
     }
     free(png);
 }
 
-void app_tick(struct app *app, int64_t now_s) {
-    if (!clock_is_synced()) {
+static void run_tick(struct app *app, int64_t now_s) {
+    if (!app->ticked) {
+        app->ticked = true;
+        if (app->state.history.last_refresh_s > now_s) {
+            app->state.history.last_refresh_s = now_s; // the clock went back while the Pi was off
+        }
+    }
+    const bool wifi_setup = wifi_setup_screen(app);
+    if (!wifi_setup && !app->ports.clock_synced(app->ports.context)) {
         if (!app->clock_wait_logged) {
             log_info("waiting for the clock to synchronise before drawing");
             app->clock_wait_logged = true;
@@ -470,16 +457,18 @@ void app_tick(struct app *app, int64_t now_s) {
         return;
     }
     const struct civil_date today = clock_warsaw_date(now_s);
-    track_time(app, now_s, today);
-    poll_dashboard(app, now_s);
-    if (now_s >= app->next_weather_s) {
-        fetch_weather(app, now_s);
-    }
-    app->weather.now_s = now_s;
-    struct screen_model model;
-    if (!compose(app, today, wifi_setup_screen(app), &model)) {
-        note_error(app, "no date line for today");
-        return;
+    struct screen_model model = {.wifi_setup = true};
+    if (!wifi_setup) {
+        note_cleanup_crossing(app, now_s, today);
+        poll_dashboard(app, now_s);
+        if (now_s >= app->next_weather_s) {
+            fetch_weather(app, now_s);
+        }
+        app->weather.now_s = now_s;
+        if (!compose(app, today, &model)) {
+            note_error(app, "no date line for today");
+            return;
+        }
     }
     struct frame next;
     struct render_report report;
@@ -488,6 +477,13 @@ void app_tick(struct app *app, int64_t now_s) {
     if (drawn == nullptr) {
         note_error(app, "render failed");
         return;
+    }
+    if (too_long_id != app->last_too_long_id) {
+        if (too_long_id != 0) {
+            log_warning("phrase %" PRId64 " doesn't fit the screen; the glass keeps its phrase",
+                        too_long_id);
+        }
+        app->last_too_long_id = too_long_id;
     }
     const int64_t missing_glyphs_id =
             !model.wifi_setup && drawn->id != 0 && report.phrase.unknown_glyphs > 0 ? drawn->id : 0;
@@ -512,5 +508,13 @@ void app_tick(struct app *app, int64_t now_s) {
     } else if (too_long_id != 0 && too_long_id != app->reported_too_long_id &&
                app->state.history.glass_known) {
         upload_report(app, &app->state.on_glass, too_long_id, missing_glyphs_id);
+    }
+}
+
+void app_tick(struct app *app, int64_t now_s) {
+    app->tick_failed = false;
+    run_tick(app, now_s);
+    if (!app->tick_failed) {
+        app->last_error[0] = '\0';
     }
 }

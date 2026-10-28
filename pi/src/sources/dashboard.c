@@ -10,6 +10,7 @@
 #include <glib.h>
 
 #include "calendar/clock.h"
+#include "json.h"
 #include "log.h"
 #include "panel/refresh.h"
 #include "render/icons.h"
@@ -19,22 +20,14 @@
 #define NOW_PATH    "/api/pi/now"
 #define SCREEN_PATH "/api/pi/screen"
 
-static constexpr double LARGEST_EXACT_INTEGER = 9'007'199'254'740'991.0;
 static constexpr glong REPORT_ERROR_MAX_CHARACTERS = 1000;
 
-static const cJSON *member(const cJSON *object, const char *name) {
-    return cJSON_GetObjectItemCaseSensitive(object, name);
-}
-
 static bool read_id(const cJSON *item, int64_t *out) {
-    if (!cJSON_IsNumber(item)) {
+    int64_t id = 0;
+    if (!json_whole_number(item, &id) || id < 1) {
         return false;
     }
-    const double value = item->valuedouble;
-    if (value < 1 || value > LARGEST_EXACT_INTEGER || (double)(int64_t)value != value) {
-        return false;
-    }
-    *out = (int64_t)value;
+    *out = id;
     return true;
 }
 
@@ -62,32 +55,32 @@ static bool read_now(const cJSON *root, struct dashboard_now *now) {
         log_error("the dashboard's answer isn't a JSON object");
         return false;
     }
-    const cJSON *phrase = member(root, "phrase");
+    const cJSON *phrase = json_member(root, "phrase");
     if (!cJSON_IsObject(phrase)) {
         log_error("the dashboard's answer has no phrase");
         return false;
     }
-    if (!read_id(member(phrase, "id"), &now->phrase_id)) {
+    if (!read_id(json_member(phrase, "id"), &now->phrase_id)) {
         log_error("the dashboard's phrase id isn't a positive whole number");
         return false;
     }
-    if (!read_text(member(phrase, "text"), "phrase text", now->phrase_text,
+    if (!read_text(json_member(phrase, "text"), "phrase text", now->phrase_text,
                    sizeof now->phrase_text)) {
         return false;
     }
-    const char *until = cJSON_GetStringValue(member(phrase, "until"));
+    const char *until = cJSON_GetStringValue(json_member(phrase, "until"));
     if (until == nullptr || !clock_parse_iso8601(until, &now->until_s)) {
         log_error("phrase %" PRId64 " comes without a readable until time", now->phrase_id);
         return false;
     }
-    const cJSON *greeting = member(root, "greeting");
+    const cJSON *greeting = json_member(root, "greeting");
     if (cJSON_IsObject(greeting)) {
-        const char *icon = cJSON_GetStringValue(member(greeting, "icon"));
+        const char *icon = cJSON_GetStringValue(json_member(greeting, "icon"));
         if (icon == nullptr || !icons_small_from_name(icon, &now->greeting_icon)) {
             log_error("the dashboard's greeting icon isn't one of the six");
             return false;
         }
-        if (!read_text(member(greeting, "text"), "greeting", now->greeting_text,
+        if (!read_text(json_member(greeting, "text"), "greeting", now->greeting_text,
                        sizeof now->greeting_text)) {
             return false;
         }
@@ -96,7 +89,7 @@ static bool read_now(const cJSON *root, struct dashboard_now *now) {
         log_error("the dashboard's greeting is neither an object nor null");
         return false;
     }
-    const cJSON *full_refresh = member(root, "full_refresh");
+    const cJSON *full_refresh = json_member(root, "full_refresh");
     if (cJSON_IsNumber(full_refresh)) {
         if (!read_id(full_refresh, &now->full_refresh)) {
             log_error("the dashboard's full_refresh isn't a positive whole number");
@@ -136,16 +129,19 @@ static gchar *now_header(void) {
     return clock_is_overridden() ? iso_time(clock_now()) : nullptr;
 }
 
-static enum dashboard_status status_for(const char *url, const struct http_response *response) {
+static void log_answer(const char *url, const struct http_response *response) {
     cJSON *root = cJSON_Parse(response->body);
-    const char *error = cJSON_GetStringValue(member(root, "error"));
+    const char *error = cJSON_GetStringValue(json_member(root, "error"));
     log_error("%s answered %ld%s%s", url, response->status, error != nullptr ? ": " : "",
               error != nullptr ? error : "");
     cJSON_Delete(root);
-    if (response->status == 401 || response->status == 403) {
+}
+
+static enum dashboard_status status_for(long status) {
+    if (status == 401 || status == 403) {
         return DASHBOARD_UNAUTHORIZED;
     }
-    if (response->status >= 500) {
+    if (status >= 500) {
         return DASHBOARD_UNREACHABLE;
     }
     return DASHBOARD_BAD_RESPONSE;
@@ -158,8 +154,12 @@ enum dashboard_status dashboard_fetch_now(const char *base_url, const char *pi_k
     struct http_response response;
     enum dashboard_status status = DASHBOARD_UNREACHABLE;
     if (http_get(url, pi_key, header, &response)) {
-        status = response.status == 200 ? dashboard_parse_now(response.body, out)
-                                        : status_for(url, &response);
+        if (response.status == 200) {
+            status = dashboard_parse_now(response.body, out);
+        } else {
+            log_answer(url, &response);
+            status = response.status == 503 ? DASHBOARD_NO_PHRASE : status_for(response.status);
+        }
         http_response_free(&response);
     }
     g_free(header);
@@ -181,7 +181,12 @@ enum dashboard_status dashboard_upload(const char *base_url, const char *pi_key,
     struct http_response response;
     enum dashboard_status status = DASHBOARD_UNREACHABLE;
     if (http_put_multipart(url, pi_key, header, parts, G_N_ELEMENTS(parts), &response)) {
-        status = response.status == 204 ? DASHBOARD_OK : status_for(url, &response);
+        if (response.status == 204) {
+            status = DASHBOARD_OK;
+        } else {
+            log_answer(url, &response);
+            status = status_for(response.status);
+        }
         http_response_free(&response);
     }
     g_free(header);
