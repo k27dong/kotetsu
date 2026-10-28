@@ -6,6 +6,7 @@ const PI_ONLINE_MS = 60 * 1000;
 const REFOCUS_GAP_MS = 5 * 1000;
 const SEARCH_DELAY_MS = 200;
 const PREVIEW_DELAY_MS = 60;
+const WIFI_QUALITY_MAX = 70;
 
 const PIN_KINDS = [
   ["yearly", "Every year"],
@@ -98,12 +99,17 @@ function numbered(count, suffix, names) {
   ]);
 }
 
-async function api(path, method = "GET", body) {
-  const response = await fetch(path, {
-    method,
-    headers: body === undefined ? {} : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+async function request(path, method = "GET", body) {
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, "Couldn't reach the server");
+  }
   if (response.status === 401) {
     showSignIn();
     throw new ApiError(401, "Signed out");
@@ -117,7 +123,29 @@ async function api(path, method = "GET", body) {
     }
     throw new ApiError(response.status, message);
   }
+  return response;
+}
+
+async function api(path, method, body) {
+  const response = await request(path, method, body);
   return response.status === 204 ? null : response.json();
+}
+
+function showFailure(messages, error) {
+  if (!(error instanceof ApiError) || error.status === 401) throw error;
+  messages.textContent = error.message;
+}
+
+async function perform(button, messages, action) {
+  button.disabled = true;
+  messages.textContent = "";
+  try {
+    await action();
+  } catch (error) {
+    showFailure(messages, error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function clock(iso) {
@@ -153,7 +181,7 @@ function todayInWarsaw() {
 }
 
 function pinText(pin) {
-  const when = {
+  const repeats = {
     date: () => `On ${chineseDate(pin.date, true)}`,
     yearly: () => `Every year, ${pin.month}月${pin.day}日`,
     lunar_yearly: () => `Every year, 农历${LUNAR_MONTHS[pin.month - 1]}${LUNAR_DAYS[pin.day - 1]}`,
@@ -161,23 +189,8 @@ function pinText(pin) {
     weekly: () => `Every week, ${WEEKDAYS[pin.weekday - 1]}`,
   }[pin.kind]();
   const slot = { all_day: "", morning: ", morning", evening: ", evening" }[pin.slot];
-  return when + slot;
+  return repeats + slot;
 }
-
-async function perform(button, messages, action) {
-  button.disabled = true;
-  messages.textContent = "";
-  try {
-    await action();
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status === 401) throw error;
-    messages.textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
-}
-
-// sign in
 
 function signInPage() {
   const error = h("p", { class: "error" });
@@ -196,17 +209,26 @@ function signInPage() {
       class: "sign-in",
       onsubmit: async (event) => {
         event.preventDefault();
-        const response = await fetch("/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: password.value }),
-        });
+        let response;
+        try {
+          response = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: password.value }),
+          });
+        } catch {
+          error.textContent = "Couldn't reach the server";
+          return;
+        }
         if (response.status === 401) {
           error.textContent = "Wrong password";
           password.select();
           return;
         }
-        if (!response.ok) throw new ApiError(response.status, `${response.status} from /api/login`);
+        if (!response.ok) {
+          error.textContent = `Couldn't sign in (${response.status})`;
+          return;
+        }
         render();
       },
     },
@@ -225,8 +247,6 @@ function showSignIn() {
   header.hidden = true;
   main.replaceChildren(signInPage());
 }
-
-// now
 
 function slotSection(heading, phrase, actions) {
   return h(
@@ -251,7 +271,10 @@ function healthRows(report, special, now) {
       report.weatherAt === null ? "no data yet" : `updated ${when(report.weatherAt, now)}`,
     ]);
     rows.push(["Last refresh", `${report.refresh}, ${when(report.at, now)}`]);
-    rows.push(["Wi-Fi signal", report.wifiSignal === null ? "unknown" : String(report.wifiSignal)]);
+    rows.push([
+      "Wi-Fi signal",
+      report.wifiSignal === null ? "unknown" : `${report.wifiSignal}/${WIFI_QUALITY_MAX}`,
+    ]);
     rows.push([
       "Pi temperature",
       report.piTemperatureC === null ? "unknown" : `${Math.round(report.piTemperatureC)} °C`,
@@ -259,7 +282,6 @@ function healthRows(report, special, now) {
     if (report.lastError !== null) rows.push(["Last error", report.lastError]);
   }
   const today = dayFormat.format(now);
-  // the next one is within a year, so its date needs no year
   rows.push([
     "Next special day",
     special === null
@@ -269,6 +291,7 @@ function healthRows(report, special, now) {
           h(
             "span",
             {},
+            // the next one is within a year, so its date needs no year
             `${special.date === today ? "today" : chineseDate(special.date, false)}, ${special.text}`,
           ),
         ],
@@ -277,16 +300,15 @@ function healthRows(report, special, now) {
 }
 
 async function nowPage() {
-  const view = h("section", { class: "now" });
+  const content = h("div");
+  const trouble = h("p", { class: "error" });
+  const view = h("section", { class: "now" }, content, trouble);
   let wall = { at: null, node: null };
   let lastLoad = 0;
+  let loading = null;
 
-  async function load() {
-    const status = await api("/api/status");
-    const now = new Date();
-    lastLoad = now.getTime();
+  function fill(status, now) {
     const { piLastSeenAt, onWall, next, screenAt, report, nextSpecialDay } = status;
-
     if (screenAt !== wall.at) {
       wall = {
         at: screenAt,
@@ -308,9 +330,8 @@ async function nowPage() {
         : `Pi ${online ? "online" : "offline"}, checked ${ago(piLastSeenAt, now)}.`;
     const messages = h("p", { class: "notice" });
     const refreshMessages = h("p", { class: "notice" });
-    const refreshButton = h("button", { class: "link", onclick: () => load() }, "Refresh");
 
-    view.replaceChildren(
+    content.replaceChildren(
       h(
         "figure",
         { class: "wall" },
@@ -318,11 +339,13 @@ async function nowPage() {
         h(
           "figcaption",
           {},
-          screenAt === null ? "" : `Picture from ${when(screenAt, now)}. `,
-          piText,
-          h("br"),
-          `Status from ${clock(now.toISOString())}. `,
-          refreshButton,
+          h("p", {}, screenAt === null ? "" : `Picture from ${when(screenAt, now)}. `, piText),
+          h(
+            "p",
+            {},
+            `Status from ${clock(now.toISOString())}. `,
+            h("button", { class: "link", onclick: reload }, "Refresh"),
+          ),
         ),
       ),
       slotSection(
@@ -375,7 +398,7 @@ async function nowPage() {
             onclick: (event) =>
               perform(event.target, refreshMessages, async () => {
                 await api("/api/full-refresh", "POST");
-                refreshMessages.textContent = "Requested. The Pi redraws within 15 s.";
+                refreshMessages.textContent = "Requested. The Pi picks it up within 15 s.";
               }),
           },
           "Full refresh",
@@ -385,21 +408,35 @@ async function nowPage() {
     );
   }
 
+  function load() {
+    if (loading === null) {
+      lastLoad = Date.now();
+      trouble.textContent = "";
+      loading = api("/api/status")
+        .then((status) => fill(status, new Date()))
+        .finally(() => {
+          loading = null;
+        });
+    }
+    return loading;
+  }
+  function reload() {
+    load().catch((error) => showFailure(trouble, error));
+  }
+
   await load();
   // status reads every phrase, so it is fetched on return, not on a timer
   const onReturn = () => {
-    if (document.visibilityState === "visible" && Date.now() - lastLoad > REFOCUS_GAP_MS) load();
+    if (document.visibilityState === "visible" && Date.now() - lastLoad > REFOCUS_GAP_MS) reload();
   };
   document.addEventListener("visibilitychange", onReturn);
   window.addEventListener("focus", onReturn);
-  leavePage = () => {
+  const leave = () => {
     document.removeEventListener("visibilitychange", onReturn);
     window.removeEventListener("focus", onReturn);
   };
-  return view;
+  return { view, leave };
 }
-
-// phrases
 
 const search = { q: "", filter: "all", total: null };
 
@@ -422,6 +459,7 @@ function phraseRow(phrase) {
 async function phrasesPage() {
   const list = h("ol", { class: "phrases" });
   const empty = h("p", { class: "empty" });
+  const messages = h("p", { class: "error" });
   const input = h("input", {
     class: "search",
     type: "search",
@@ -431,6 +469,27 @@ async function phrasesPage() {
     enterkeyhint: "search",
     "aria-label": "Search phrases",
   });
+
+  let loads = 0;
+  async function load() {
+    const token = ++loads;
+    messages.textContent = "";
+    const params = new URLSearchParams();
+    if (search.q.trim() !== "") params.set("q", search.q);
+    if (search.filter !== "all") params.set("filter", search.filter);
+    const query = params.toString();
+    const phrases = await api(`/api/phrases${query === "" ? "" : `?${query}`}`);
+    if (token !== loads) return;
+    if (query === "") {
+      search.total = phrases.length;
+      input.placeholder = `Search ${search.total} phrases`;
+    }
+    list.replaceChildren(...phrases.map(phraseRow));
+    empty.textContent =
+      phrases.length > 0 ? "" : query === "" ? "No phrases yet." : "Nothing matches.";
+  }
+  const reload = () => load().catch((error) => showFailure(messages, error));
+
   const chips = h(
     "div",
     { class: "chips", role: "group", "aria-label": "Filter" },
@@ -449,42 +508,22 @@ async function phrasesPage() {
             for (const chip of chips.children) {
               chip.setAttribute("aria-pressed", String(chip.textContent === label));
             }
-            load();
+            reload();
           },
         },
         label,
       ),
     ),
   );
-
-  let loads = 0;
-  async function load() {
-    const token = ++loads;
-    const params = new URLSearchParams();
-    if (search.q.trim() !== "") params.set("q", search.q);
-    if (search.filter !== "all") params.set("filter", search.filter);
-    const query = params.toString();
-    const phrases = await api(`/api/phrases${query === "" ? "" : `?${query}`}`);
-    if (token !== loads) return;
-    if (query === "") {
-      search.total = phrases.length;
-      input.placeholder = `Search ${search.total} phrases`;
-    }
-    list.replaceChildren(...phrases.map(phraseRow));
-    empty.textContent =
-      phrases.length > 0 ? "" : query === "" ? "No phrases yet." : "Nothing matches.";
-  }
-
   let pending;
   input.addEventListener("input", () => {
     search.q = input.value;
     clearTimeout(pending);
-    pending = setTimeout(load, SEARCH_DELAY_MS);
+    pending = setTimeout(reload, SEARCH_DELAY_MS);
   });
   await load();
-  leavePage = () => clearTimeout(pending);
 
-  return h(
+  const view = h(
     "section",
     {},
     h(
@@ -495,12 +534,12 @@ async function phrasesPage() {
     ),
     input,
     chips,
+    messages,
     list,
     empty,
   );
+  return { view, leave: () => clearTimeout(pending) };
 }
-
-// edit
 
 function freshFields(kind) {
   const today = todayInWarsaw();
@@ -607,14 +646,14 @@ function pinEditor(pin, slots, onRemove) {
 }
 
 async function loadScreen() {
-  const image = new Image();
-  image.src = "/api/screen.png";
+  let response;
   try {
-    await image.decode();
-    return image;
-  } catch {
-    return null; // the Pi hasn't uploaded a screen yet (404)
+    response = await request("/api/screen.png");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null; // nothing uploaded yet
+    throw error;
   }
+  return createImageBitmap(await response.blob());
 }
 
 async function editPage(id) {
@@ -633,6 +672,7 @@ async function editPage(id) {
   ];
   const pins = phrase.pins.map((pin) => ({ ...pin }));
   let mode = pins.length > 0 ? "pinned" : "rotation";
+  const messages = h("p", { class: "error" });
 
   const textarea = h("textarea", {
     class: "phrase",
@@ -643,7 +683,10 @@ async function editPage(id) {
   });
   const canvas = h("canvas", { width: 800, height: 480 });
   const sizeLabel = h("p", { class: "size" });
-  const screen = loadScreen();
+  const screen = loadScreen().catch((error) => {
+    showFailure(messages, error);
+    return null;
+  });
   let draws = 0;
   let pendingDraw;
   async function preview() {
@@ -714,7 +757,6 @@ async function editPage(id) {
   });
   renderPins();
 
-  const messages = h("p", { class: "error" });
   async function save() {
     const body = { text: textarea.value, pins: mode === "pinned" ? pins : [] };
     if (id !== null) {
@@ -773,9 +815,8 @@ async function editPage(id) {
     preview();
     if (id === null) textarea.focus();
   });
-  leavePage = () => clearTimeout(pendingDraw);
 
-  return h(
+  const view = h(
     "section",
     { class: "edit" },
     h("a", { class: "crumb", href: "#/phrases" }, "‹ Phrases"),
@@ -825,9 +866,8 @@ async function editPage(id) {
     messages,
     id !== null && h("div", { class: "danger-zone" }, deleteLink, confirmation),
   );
+  return { view, leave: () => clearTimeout(pendingDraw) };
 }
-
-// special days
 
 let specialDayCount = 0;
 
@@ -957,7 +997,7 @@ async function specialDaysPage() {
   renderList();
   const messages = h("p", { class: "error" });
   const saved = h("p", { class: "notice" });
-  return h(
+  const view = h(
     "section",
     {},
     h("h1", {}, "Special days"),
@@ -1011,9 +1051,8 @@ async function specialDaysPage() {
     messages,
     saved,
   );
+  return { view };
 }
-
-// settings
 
 async function settingsPage() {
   const settings = await api("/api/settings");
@@ -1022,7 +1061,7 @@ async function settingsPage() {
   const messages = h("p", { class: "error" });
   const saved = h("p", { class: "notice" });
   const button = h("button", { class: "primary" }, "Save");
-  return h(
+  const view = h(
     "section",
     {},
     h("h1", {}, "Settings"),
@@ -1052,9 +1091,8 @@ async function settingsPage() {
       saved,
     ),
   );
+  return { view };
 }
-
-// routing
 
 const pages = [
   [/^#\/now$/, nowPage],
@@ -1087,19 +1125,26 @@ async function render() {
   const [pattern, page] = entry;
   markNav(hash);
   const token = ++renders;
+  let opened;
   try {
-    const view = await page(...hash.match(pattern).slice(1));
-    if (token !== renders) return;
-    header.hidden = false;
-    main.replaceChildren(view);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    opened = await page(...hash.match(pattern).slice(1));
   } catch (error) {
     if (token !== renders || (error instanceof ApiError && error.status === 401)) return;
+    header.hidden = false;
     main.replaceChildren(
       h("section", {}, h("h1", {}, "This page couldn't load"), h("p", {}, error.message)),
     );
     throw error;
   }
+  const { view, leave = () => {} } = opened;
+  if (token !== renders) {
+    leave();
+    return;
+  }
+  leavePage = leave;
+  header.hidden = false;
+  main.replaceChildren(view);
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 window.addEventListener("hashchange", render);

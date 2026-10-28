@@ -138,6 +138,7 @@ button.danger {
 }
 
 button.link {
+  min-height: 44px;
   height: auto;
   padding: 0;
   border: 0;
@@ -197,6 +198,7 @@ label.choice {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
 }
 
 .actions {
@@ -232,8 +234,6 @@ label.choice {
   margin: 0;
 }
 
-/* sign in */
-
 .sign-in {
   max-width: 360px;
   margin: 18vh auto 0;
@@ -247,8 +247,6 @@ label.choice {
   text-align: center;
 }
 
-/* now */
-
 .wall {
   margin: 16px 0 0;
 }
@@ -257,6 +255,7 @@ label.choice {
 .wall .blank {
   display: block;
   width: 100%;
+  height: auto;
   aspect-ratio: 800 / 480;
   border: 1px solid var(--line);
   background: #fff;
@@ -286,6 +285,14 @@ label.choice {
 .slot .ref,
 .phrases .id {
   font: 600 15px/1.45 var(--figure);
+}
+
+.slot .ref {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -10px 0;
+  padding-left: 12px;
 }
 
 .slot .phrase {
@@ -327,8 +334,6 @@ label.choice {
   fill: currentColor;
 }
 
-/* phrases */
-
 .search {
   margin-bottom: 12px;
 }
@@ -340,10 +345,9 @@ label.choice {
 }
 
 .chips button {
-  height: 36px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-color: var(--line);
-  border-radius: 18px;
+  border-radius: 22px;
   font-size: 15px;
 }
 
@@ -398,16 +402,16 @@ label.choice {
   padding: 24px 0;
 }
 
-/* edit */
-
 .crumb {
-  display: inline-block;
-  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 4px;
   text-decoration: none;
 }
 
 .crumb + h1 {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 textarea.phrase {
@@ -441,7 +445,6 @@ fieldset {
 
 legend {
   padding: 0;
-  margin-bottom: 10px;
   font: 600 17px/1.45 var(--figure);
 }
 
@@ -465,11 +468,11 @@ legend {
 
 .pin-row .remove {
   justify-self: start;
-  margin-top: 4px;
+  margin-top: -4px;
 }
 
 .add {
-  margin-top: 16px;
+  margin-top: 6px;
 }
 
 .confirm {
@@ -480,10 +483,8 @@ legend {
 }
 
 .danger-zone {
-  margin-top: 40px;
+  margin-top: 30px;
 }
-
-/* special days */
 
 .special-days {
   list-style: none;
@@ -555,9 +556,8 @@ legend {
 
 .special-day .remove {
   justify-self: start;
+  margin: -6px 0;
 }
-
-/* settings */
 
 .lead {
   margin-bottom: 16px;

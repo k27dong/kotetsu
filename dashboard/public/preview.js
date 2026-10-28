@@ -12,7 +12,9 @@ const HANGING_SHIFT_EM = 0.25;
 const HAN = /\p{Script=Han}/u;
 const DIGIT = /\p{Nd}/u;
 const WORD = /[\p{L}\p{N}'’-]/u;
+const PUNCTUATION = /[\p{P}\p{S}]/u;
 const HANGING = /[。，！？]\s*$/u;
+const BREAK_PUNCTUATION = /[。，！？、；：]/u;
 const NO_LINE_START = /[。，、：；！？」』）】》〉〕〗’”,.;:!?)\]}%…]/u;
 const NO_LINE_END = /[「『（【《〈〔〖‘“(\[{]/u;
 
@@ -50,46 +52,100 @@ function lineWidth(ctx, sizePx, line) {
   return text + (runs.length - 1) * sizePx * DIGIT_GAP_EM;
 }
 
-function wrapParagraph(ctx, sizePx, paragraph) {
-  const characters = [...paragraph];
-  const lines = [];
-  let start = 0;
-  while (start < characters.length) {
-    let end = start;
-    let lastBreak = -1;
-    while (end < characters.length) {
-      const candidate = characters
-        .slice(start, end + 1)
-        .join("")
-        .trimEnd();
-      if (lineWidth(ctx, sizePx, candidate) > BOX.width) break;
-      end++;
-      if (end < characters.length && breakAllowed(characters[end - 1], characters[end])) {
-        lastBreak = end;
-      }
+function lineEndFrom(ctx, sizePx, characters, start) {
+  let end = start;
+  let lastBreak = -1;
+  while (end < characters.length) {
+    const candidate = characters
+      .slice(start, end + 1)
+      .join("")
+      .trimEnd();
+    if (lineWidth(ctx, sizePx, candidate) > BOX.width) break;
+    end++;
+    if (end < characters.length && breakAllowed(characters[end - 1], characters[end])) {
+      lastBreak = end;
     }
-    // a word wider than the box breaks inside, as Pango's word-char wrap does
-    const lineEnd =
-      end === characters.length ? end : lastBreak > start ? lastBreak : Math.max(end, start + 1);
-    lines.push(characters.slice(start, lineEnd).join("").trimEnd());
-    start = lineEnd;
-    while (characters[start] === " ") start++;
   }
-  return lines.length > 0 ? lines : [""];
+  if (end === characters.length) return end;
+  if (lastBreak > start) return lastBreak;
+  let wordEnd = Math.max(end, start + 1);
+  while (
+    wordEnd < characters.length &&
+    !breakAllowed(characters[wordEnd - 1], characters[wordEnd])
+  ) {
+    wordEnd++;
+  }
+  return wordEnd; // too wide for the box, which refuses this size
 }
 
-function layoutAt(ctx, sizePx, text) {
+function layoutLines(ctx, sizePx, text) {
   ctx.font = `${sizePx}px ${FONT_FAMILY}`;
-  return text.split("\n").flatMap((paragraph) => wrapParagraph(ctx, sizePx, paragraph));
+  const lines = [];
+  let offset = 0;
+  for (const paragraph of text.split("\n")) {
+    const characters = [...paragraph];
+    let start = 0;
+    do {
+      const end = lineEndFrom(ctx, sizePx, characters, start);
+      lines.push({
+        text: characters.slice(start, end).join("").trimEnd(),
+        start: offset + start,
+        paragraphStart: start === 0,
+      });
+      start = end;
+      while (characters[start] === " ") start++;
+    } while (start < characters.length);
+    offset += characters.length + 1;
+  }
+  return lines;
+}
+
+function blockFits(ctx, sizePx, lines) {
+  if (lines.length * sizePx * LINE_HEIGHT > BOX.height) return false;
+  return lines.every((line) => lineWidth(ctx, sizePx, line.text) <= BOX.width);
+}
+
+function punctuationCut(ctx, sizePx, line) {
+  const characters = [...line];
+  const width = lineWidth(ctx, sizePx, line);
+  let cut = -1;
+  for (let i = 0; i < characters.length; i++) {
+    if (!BREAK_PUNCTUATION.test(characters[i])) continue;
+    if (i + 1 === characters.length) return -1;
+    if (PUNCTUATION.test(characters[i + 1])) continue; // a closing quote stays with its punctuation
+    const trailingX = lineWidth(ctx, sizePx, characters.slice(0, i + 1).join(""));
+    if (trailingX * 4 >= width * 3) cut = i + 1;
+  }
+  return cut;
+}
+
+function preferPunctuationBreaks(ctx, sizePx, text, lines) {
+  let characters = [...text];
+  let current = lines;
+  const count = lines.length;
+  for (let i = 0; i + 1 < count; i++) {
+    if (current[i + 1].paragraphStart) continue;
+    const cut = punctuationCut(ctx, sizePx, current[i].text);
+    if (cut < 0) continue;
+    const moved = characters.toSpliced(current[i].start + cut, 0, "\n");
+    const next = layoutLines(ctx, sizePx, moved.join(""));
+    if (next.length !== count || !blockFits(ctx, sizePx, next)) continue;
+    characters = moved;
+    current = next;
+  }
+  return current;
 }
 
 export function fitPhrase(ctx, text) {
   let lines = [];
   for (let sizePx = SIZE_MAX; sizePx >= SIZE_MIN; sizePx -= SIZE_STEP) {
-    lines = layoutAt(ctx, sizePx, text);
-    if (lines.length * sizePx * LINE_HEIGHT <= BOX.height) return { sizePx, lines, fits: true };
+    lines = layoutLines(ctx, sizePx, text);
+    if (blockFits(ctx, sizePx, lines)) {
+      const preferred = preferPunctuationBreaks(ctx, sizePx, text, lines);
+      return { sizePx, lines: preferred.map((line) => line.text), fits: true };
+    }
   }
-  return { sizePx: SIZE_MIN, lines, fits: false };
+  return { sizePx: SIZE_MIN, lines: lines.map((line) => line.text), fits: false };
 }
 
 function cutAtHalf(ctx, width, height) {
