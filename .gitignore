@@ -3,5 +3,4 @@ pi/fonts/
 dashboard/node_modules/
 dashboard/.wrangler/
 dashboard/.dev.vars
-dashboard/.private/
 .DS_Store
