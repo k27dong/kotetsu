@@ -1,37 +1,15 @@
+import type { Greeting, PinFields, PinKind, SpecialDayFields } from "./api_types";
 import { lunarOf } from "./lunar";
 import { daysBetween, parseDate, warsawInstant, warsawMinuteOfDay, type Slot } from "./time";
 
-export type PinKind = "date" | "yearly" | "lunar_yearly" | "monthly" | "weekly";
-export type PinSlot = "morning" | "evening" | "all_day";
-export type Pin = {
-  id: number;
-  phraseId: number;
-  kind: PinKind;
-  date: string | null;
-  month: number | null;
-  day: number | null;
-  weekday: number | null;
-  slot: PinSlot;
-};
+export type Pin = { id: number; phraseId: number } & PinFields;
 export type PhraseRow = {
   id: number;
   text: string;
   lastShownAt: string | null;
   problem: string | null;
 };
-
-export type Icon = "heart" | "rings" | "cake" | "cat" | "hearts" | "star";
-export type SpecialDay = {
-  id: number;
-  kind: "yearly" | "lunar_yearly";
-  month: number;
-  day: number;
-  greeting: string;
-  baseYear: number | null;
-  icon: Icon;
-  rank: number;
-};
-export type Greeting = { icon: Icon; text: string };
+export type SpecialDay = { id: number } & SpecialDayFields;
 
 type PinField = "date" | "month" | "day" | "weekday";
 type Candidate = { pin: Pin; shown: number };
@@ -64,18 +42,18 @@ const PIN_FIELDS: Record<PinKind, PinField[]> = {
   weekly: ["weekday"],
 };
 
-function isoWeekday(date: string): number {
+const isoWeekday = (date: string): number => {
   const { year, month, day } = parseDate(date);
   return ((new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7) + 1;
-}
+};
 
-function lunarMatches(month: number, day: number, date: string): boolean {
+const lunarMatches = (month: number, day: number, date: string): boolean => {
   const lunar = lunarOf(date);
   if (lunar.leap || lunar.month !== month) return false;
   return lunar.day === day || (day === 30 && lunar.day === lunar.monthLength);
-}
+};
 
-export function pinMatchesDate(pin: Pin, date: string): boolean {
+export const pinMatchesDate = (pin: Pin, date: string): boolean => {
   const missing = PIN_FIELDS[pin.kind].find((field) => pin[field] === null);
   if (missing !== undefined) {
     console.error(`Pin ${pin.id} (${pin.kind}) has no ${missing}; skipped`);
@@ -94,9 +72,9 @@ export function pinMatchesDate(pin: Pin, date: string): boolean {
     case "weekly":
       return pin.weekday === isoWeekday(date);
   }
-}
+};
 
-function lastShownMs(phrase: PhraseRow): number | null {
+const lastShownMs = (phrase: PhraseRow): number | null => {
   if (phrase.lastShownAt === null) return -Infinity;
   const time = Date.parse(phrase.lastShownAt);
   if (Number.isNaN(time)) {
@@ -104,22 +82,20 @@ function lastShownMs(phrase: PhraseRow): number | null {
     return null;
   }
   return time;
-}
+};
 
-function compareNumbers(a: number, b: number): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
+const compareNumbers = (a: number, b: number): number => (a < b ? -1 : a > b ? 1 : 0);
 
-function withoutTheMorningsPick(candidates: Candidate[], evening: Slot): Candidate[] {
+const withoutTheMorningsPick = (candidates: Candidate[], evening: Slot): Candidate[] => {
   // the evening ends where the next morning starts, so that wall time is the first phrase time
   const morningStart = warsawInstant(evening.date, warsawMinuteOfDay(evening.end)).getTime();
   return candidates.filter(
     ({ pin, shown }) =>
       !(pin.slot === "all_day" && shown >= morningStart && shown < evening.start.getTime()),
   );
-}
+};
 
-export function pinnedPhraseFor(slot: Slot, pins: Pin[], phrases: PhraseRow[]): number | null {
+export const pinnedPhraseFor = (slot: Slot, pins: Pin[], phrases: PhraseRow[]): number | null => {
   const byId = new Map(phrases.map((phrase) => [phrase.id, phrase]));
   const candidates: Candidate[] = [];
   for (const pin of pins) {
@@ -147,13 +123,13 @@ export function pinnedPhraseFor(slot: Slot, pins: Pin[], phrases: PhraseRow[]): 
       a.pin.id - b.pin.id,
   );
   return ranked[0]?.pin.phraseId ?? null;
-}
+};
 
-export function rotationPick(
+export const rotationPick = (
   phrases: PhraseRow[],
   pinnedIds: Set<number>,
   random: () => number,
-): number | null {
+): number | null => {
   const eligible: { id: number; shown: number }[] = [];
   for (const phrase of phrases) {
     if (pinnedIds.has(phrase.id) || phrase.problem !== null) continue;
@@ -168,23 +144,19 @@ export function rotationPick(
     throw new Error("random() must give a number from 0 up to, but not including, 1");
   }
   return pick.id;
-}
+};
 
-export function counterDays(date: string): number {
-  return daysBetween(COUNTER_DAY_ZERO, date);
-}
+export const counterDays = (date: string): number => daysBetween(COUNTER_DAY_ZERO, date);
 
-export function milestoneText(days: number): string | null {
-  return MILESTONES.get(days) ?? null;
-}
+export const milestoneText = (days: number): string | null => MILESTONES.get(days) ?? null;
 
-function fallsOn(special: SpecialDay, date: string): boolean {
+const fallsOn = (special: SpecialDay, date: string): boolean => {
   if (special.kind === "lunar_yearly") return lunarMatches(special.month, special.day, date);
   const { month, day } = parseDate(date);
   return special.month === month && special.day === day;
-}
+};
 
-function specialDayGreeting(special: SpecialDay, year: number): Greeting | null {
+const specialDayGreeting = (special: SpecialDay, year: number): Greeting | null => {
   if (!special.greeting.includes("{n}")) return { icon: special.icon, text: special.greeting };
   if (special.baseYear === null) {
     console.error(`Special day ${special.id} says {n} but has no base year; skipped`);
@@ -192,9 +164,9 @@ function specialDayGreeting(special: SpecialDay, year: number): Greeting | null 
   }
   const n = year - special.baseYear;
   return n < 1 ? null : { icon: special.icon, text: special.greeting.replaceAll("{n}", String(n)) };
-}
+};
 
-export function greetingFor(date: string, specialDays: SpecialDay[]): Greeting | null {
+export const greetingFor = (date: string, specialDays: SpecialDay[]): Greeting | null => {
   const { year } = parseDate(date);
   const milestone = milestoneText(counterDays(date));
   const todays = specialDays
@@ -206,4 +178,4 @@ export function greetingFor(date: string, specialDays: SpecialDay[]): Greeting |
     if (greeting !== null) return greeting;
   }
   return milestone === null ? null : { icon: "star", text: milestone };
-}
+};

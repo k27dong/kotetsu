@@ -1,3 +1,4 @@
+import type { ErrorResponse, PiNowResponse } from "./api_types";
 import {
   clearFromWall,
   readDisplayState,
@@ -18,46 +19,45 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 type OnWall = { phrase: PhraseRow; until: string };
 
-export function activeOverride(
+export const activeOverride = (
   state: DisplayState,
   now: Date,
-): { id: number; until: string } | null {
+): { id: number; until: string } | null => {
   const { overridePhraseId: id, overrideUntil: until } = state;
   if (id === null || until === null || Date.parse(until) <= now.getTime()) return null;
   return { id, until };
-}
+};
 
-async function slotRandom(slot: Slot): Promise<() => number> {
+const slotRandom = async (slot: Slot): Promise<() => number> => {
   // seeded by the slot, so the dashboard can name the next phrase before the Pi asks for it
   const seed = new TextEncoder().encode(slot.start.toISOString());
   const fraction = new DataView(await crypto.subtle.digest("SHA-256", seed)).getUint32(0) / 2 ** 32;
   return () => fraction;
-}
+};
 
-export async function rotationPhrase(
+export const rotationPhrase = async (
   slot: Slot,
   phrases: PhraseRow[],
   pins: Pin[],
-): Promise<number | null> {
+): Promise<number | null> => {
   const pinned = new Set(pins.map((pin) => pin.phraseId));
   return rotationPick(phrases, pinned, await slotRandom(slot));
-}
+};
 
-export async function scheduledPhrase(
+export const scheduledPhrase = async (
   slot: Slot,
   phrases: PhraseRow[],
   pins: Pin[],
-): Promise<number | null> {
-  return pinnedPhraseFor(slot, pins, phrases) ?? (await rotationPhrase(slot, phrases, pins));
-}
+): Promise<number | null> =>
+  pinnedPhraseFor(slot, pins, phrases) ?? (await rotationPhrase(slot, phrases, pins));
 
-async function claimSlot(
+const claimSlot = async (
   db: D1Database,
   state: DisplayState,
   slot: Slot,
   id: number,
   now: Date,
-): Promise<void> {
+): Promise<void> => {
   const unchanged = "slot_start IS ? AND phrase_id IS ?";
   const seen = [state.slotStart, state.phraseId];
   // both statements test the state this request read, so a concurrent pick or clear voids both
@@ -78,25 +78,25 @@ async function claimSlot(
   if (claim?.meta.changes !== 1) {
     throw new Error(`The slot from ${slot.start.toISOString()} changed while picking phrase ${id}`);
   }
-}
+};
 
-async function overrideOnWall(
+const overrideOnWall = async (
   db: D1Database,
   state: DisplayState,
   now: Date,
-): Promise<OnWall | null> {
+): Promise<OnWall | null> => {
   const override = activeOverride(state, now);
   if (override === null) return null;
   const phrase = await readPhrase(db, override.id);
   return phrase === null ? null : { phrase, until: override.until };
-}
+};
 
-async function slotOnWall(
+const slotOnWall = async (
   db: D1Database,
   state: DisplayState,
   slot: Slot,
   now: Date,
-): Promise<OnWall | null> {
+): Promise<OnWall | null> => {
   const until = slot.end.toISOString();
   if (state.slotStart === slot.start.toISOString() && state.phraseId !== null) {
     const picked = await readPhrase(db, state.phraseId);
@@ -108,9 +108,9 @@ async function slotOnWall(
   if (phrase === undefined) return null;
   await claimSlot(db, state, slot, phrase.id, now);
   return { phrase, until };
-}
+};
 
-export async function piNow({ env, now }: RouteContext): Promise<Response> {
+export const piNow = async ({ env, now }: RouteContext): Promise<Response> => {
   const db = env.DB;
   const [, times, state, specialDays] = await Promise.all([
     db
@@ -125,27 +125,28 @@ export async function piNow({ env, now }: RouteContext): Promise<Response> {
   const onWall = (await overrideOnWall(db, state, now)) ?? (await slotOnWall(db, state, slot, now));
   if (onWall === null) {
     console.error("No phrase can go on the wall: every phrase is pinned to other days or flagged");
-    return Response.json({ error: "No phrase can be shown" }, { status: 503 });
+    return Response.json({ error: "No phrase can be shown" } satisfies ErrorResponse, {
+      status: 503,
+    });
   }
   return Response.json({
     phrase: { id: onWall.phrase.id, text: onWall.phrase.text, until: onWall.until },
     greeting: greetingFor(warsawDate(now), specialDays),
     full_refresh: state.fullRefreshSeq === 0 ? null : state.fullRefreshSeq,
     cleanupMinute: cleanupMinute(times),
-  });
-}
+  } satisfies PiNowResponse);
+};
 
-function flagPhrases(
+const flagPhrases = (
   db: D1Database,
   problem: "too_long" | "missing_glyphs",
   phraseIds: number[],
-): D1PreparedStatement {
-  return db
+): D1PreparedStatement =>
+  db
     .prepare("UPDATE phrases SET problem = ? WHERE id IN (SELECT value FROM json_each(?))")
     .bind(problem, JSON.stringify(phraseIds));
-}
 
-export async function piScreen({ request, env, now }: RouteContext): Promise<Response> {
+export const piScreen = async ({ request, env, now }: RouteContext): Promise<Response> => {
   let form: FormData;
   try {
     form = await request.formData();
@@ -158,7 +159,7 @@ export async function piScreen({ request, env, now }: RouteContext): Promise<Res
   }
   if (screen.size > SCREEN_MAX_BYTES) {
     return Response.json(
-      { error: `The screen is over ${SCREEN_MAX_BYTES} bytes` },
+      { error: `The screen is over ${SCREEN_MAX_BYTES} bytes` } satisfies ErrorResponse,
       { status: 413 },
     );
   }
@@ -185,4 +186,4 @@ export async function piScreen({ request, env, now }: RouteContext): Promise<Res
     console.warn(`The Pi found phrases ${report.tooLong.join(", ")} too long for the screen`);
   }
   return new Response(null, { status: 204 });
-}
+};

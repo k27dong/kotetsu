@@ -15,7 +15,7 @@ export type DisplayState = {
 const PHRASE_COLUMNS = "id, text, last_shown_at AS lastShownAt, problem";
 const LISTED_IDS = "IN (SELECT value FROM json_each(?))";
 
-export async function readPhraseTimes(db: D1Database): Promise<PhraseTimes> {
+export const readPhraseTimes = async (db: D1Database): Promise<PhraseTimes> => {
   const times = await db
     .prepare(
       "SELECT first_phrase_time AS first, second_phrase_time AS second FROM settings WHERE id = 1",
@@ -23,9 +23,9 @@ export async function readPhraseTimes(db: D1Database): Promise<PhraseTimes> {
     .first<PhraseTimes>();
   if (times === null) throw new Error("The settings row is missing");
   return times;
-}
+};
 
-export async function readDisplayState(db: D1Database): Promise<DisplayState> {
+export const readDisplayState = async (db: D1Database): Promise<DisplayState> => {
   const state = await db
     .prepare(
       `SELECT slot_start AS slotStart, phrase_id AS phraseId,
@@ -37,32 +37,28 @@ export async function readDisplayState(db: D1Database): Promise<DisplayState> {
     .first<DisplayState>();
   if (state === null) throw new Error("The display_state row is missing");
   return state;
-}
+};
 
-export function readPhrase(db: D1Database, id: number): Promise<PhraseRow | null> {
-  return db
-    .prepare(`SELECT ${PHRASE_COLUMNS} FROM phrases WHERE id = ?`)
-    .bind(id)
-    .first<PhraseRow>();
-}
+export const readPhrase = (db: D1Database, id: number): Promise<PhraseRow | null> =>
+  db.prepare(`SELECT ${PHRASE_COLUMNS} FROM phrases WHERE id = ?`).bind(id).first<PhraseRow>();
 
-export async function readPhrases(db: D1Database): Promise<PhraseRow[]> {
+export const readPhrases = async (db: D1Database): Promise<PhraseRow[]> => {
   const { results } = await db
     .prepare(`SELECT ${PHRASE_COLUMNS} FROM phrases ORDER BY id`)
     .all<PhraseRow>();
   return results;
-}
+};
 
-export async function readPins(db: D1Database): Promise<Pin[]> {
+export const readPins = async (db: D1Database): Promise<Pin[]> => {
   const { results } = await db
     .prepare(
       "SELECT id, phrase_id AS phraseId, kind, date, month, day, weekday, slot FROM pins ORDER BY id",
     )
     .all<Pin>();
   return results;
-}
+};
 
-export async function readSpecialDays(db: D1Database): Promise<SpecialDay[]> {
+export const readSpecialDays = async (db: D1Database): Promise<SpecialDay[]> => {
   const { results } = await db
     .prepare(
       `SELECT id, kind, month, day, greeting, base_year AS baseYear, icon, rank
@@ -70,9 +66,9 @@ export async function readSpecialDays(db: D1Database): Promise<SpecialDay[]> {
     )
     .all<SpecialDay>();
   return results;
-}
+};
 
-export function clearFromWall(db: D1Database, phraseIds: number[]): D1PreparedStatement[] {
+export const clearFromWall = (db: D1Database, phraseIds: number[]): D1PreparedStatement[] => {
   const ids = JSON.stringify(phraseIds);
   return [
     db
@@ -88,4 +84,4 @@ export function clearFromWall(db: D1Database, phraseIds: number[]): D1PreparedSt
       )
       .bind(ids),
   ];
-}
+};

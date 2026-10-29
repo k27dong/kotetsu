@@ -23,6 +23,7 @@
     "wrangler": "4.154.0"
   },
   "dependencies": {
-    "lunar-javascript": "1.7.7"
+    "lunar-javascript": "1.7.7",
+    "ts-pattern": "5.9.2"
   }
 }

@@ -1,4 +1,16 @@
+import { match } from "ts-pattern";
 import { activeOverride, rotationPhrase, scheduledPhrase } from "./api_pi";
+import type {
+  CreatedPhrase,
+  ErrorResponse,
+  Greeting,
+  PhraseSummary,
+  PinFields,
+  ScreenReport,
+  Settings,
+  SpecialDayFields,
+  StatusResponse,
+} from "./api_types";
 import {
   clearFromWall,
   readDisplayState,
@@ -14,7 +26,6 @@ import {
   counterDays,
   greetingFor,
   milestoneText,
-  type Greeting,
   type Pin,
   type PhraseRow,
   type SpecialDay,
@@ -27,41 +38,35 @@ import {
   phraseInput,
   phraseTimesInput,
   specialDaysInput,
-  type PinFields,
-  type SpecialDayFields,
 } from "./validate";
 
 const HAN = /\p{Script=Han}/u;
 
-function idParam(params: Record<string, string>): number {
+const idParam = (params: Record<string, string>): number => {
   const id = Number(params.id);
   if (!Number.isSafeInteger(id)) throw new InputError("A phrase id must be a whole number");
   return id;
-}
+};
 
-function noContent(): Response {
-  return new Response(null, { status: 204 });
-}
+const noContent = (): Response => new Response(null, { status: 204 });
 
-function notFound(): Response {
-  return new Response(null, { status: 404 });
-}
+const notFound = (): Response => new Response(null, { status: 404 });
 
-function yearlyDate(year: number, month: number, day: number): string | null {
+const yearlyDate = (year: number, month: number, day: number): string | null => {
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCMonth() === month - 1 ? date.toISOString().slice(0, 10) : null;
-}
+};
 
-function lunarDate(lunarYear: number, month: number, day: number): string | null {
+const lunarDate = (lunarYear: number, month: number, day: number): string | null => {
   const date = solarOf(lunarYear, month, day, false);
   // a day-30 special day takes the last day of a 29-day month
   return date ?? (day === 30 ? solarOf(lunarYear, month, 29, false) : null);
-}
+};
 
-function nextSpecialDay(
+const nextSpecialDay = (
   today: string,
   specialDays: SpecialDay[],
-): (Greeting & { date: string }) | null {
+): (Greeting & { date: string }) | null => {
   const { year } = parseDate(today);
   const dates = new Set<string>();
   // the lunar year that began last winter may still be running
@@ -83,9 +88,9 @@ function nextSpecialDay(
     if (greeting !== null) return { date, ...greeting };
   }
   return null;
-}
+};
 
-export async function status({ env, now }: RouteContext): Promise<Response> {
+export const status = async ({ env, now }: RouteContext): Promise<Response> => {
   const db = env.DB;
   const [times, state, phrases, pins, specialDays] = await Promise.all([
     readPhraseTimes(db),
@@ -100,7 +105,8 @@ export async function status({ env, now }: RouteContext): Promise<Response> {
   const slot = slotAt(now, times);
   const onWall = phraseWithId(activeOverride(state, now)?.id) ?? phraseWithId(state.phraseId);
   const next = phraseWithId(await scheduledPhrase(slotAt(slot.end, times), phrases, pins));
-  const report: unknown = state.screenReport === null ? null : JSON.parse(state.screenReport);
+  const report: ScreenReport | null =
+    state.screenReport === null ? null : JSON.parse(state.screenReport);
   return Response.json({
     piLastSeenAt: state.piLastSeenAt,
     onWall:
@@ -109,27 +115,30 @@ export async function status({ env, now }: RouteContext): Promise<Response> {
     screenAt: state.screenAt,
     report,
     nextSpecialDay: nextSpecialDay(warsawDate(now), specialDays),
-  });
-}
+  } satisfies StatusResponse);
+};
 
-export async function screenPng({ env }: RouteContext): Promise<Response> {
+export const screenPng = async ({ env }: RouteContext): Promise<Response> => {
   type Screen = { png: number[] | null };
   const query = "SELECT screen_png AS png FROM display_state WHERE id = 1";
   const row = await env.DB.prepare(query).first<Screen>();
   if (row === null || row.png === null) return notFound();
   const headers = { "Content-Type": "image/png", "Cache-Control": "no-store" };
   return new Response(new Uint8Array(row.png), { headers });
-}
+};
 
-function fold(text: string): string {
-  return text.normalize("NFKC").toLowerCase();
-}
+const fold = (text: string): string => text.normalize("NFKC").toLowerCase();
 
-function pinFieldsOf({ kind, date, month, day, weekday, slot }: Pin): PinFields {
-  return { kind, date, month, day, weekday, slot };
-}
+const pinFieldsOf = ({ kind, date, month, day, weekday, slot }: Pin): PinFields => ({
+  kind,
+  date,
+  month,
+  day,
+  weekday,
+  slot,
+});
 
-export async function listPhrases({ request, env }: RouteContext): Promise<Response> {
+export const listPhrases = async ({ request, env }: RouteContext): Promise<Response> => {
   const params = new URL(request.url).searchParams;
   const filter = phraseFilter(params.get("filter"));
   const query = fold(params.get("q") ?? "").trim();
@@ -137,10 +146,13 @@ export async function listPhrases({ request, env }: RouteContext): Promise<Respo
   const pinsOf = Map.groupBy(pins, (pin) => pin.phraseId);
   const listed = (phrase: PhraseRow): boolean =>
     fold(phrase.text).includes(query) &&
-    (filter !== "pinned" || pinsOf.has(phrase.id)) &&
-    (filter !== "english" || !HAN.test(phrase.text));
+    match(filter)
+      .with("all", () => true)
+      .with("pinned", () => pinsOf.has(phrase.id))
+      .with("english", () => !HAN.test(phrase.text))
+      .exhaustive();
   return Response.json(
-    phrases.filter(listed).map((phrase) => ({
+    phrases.filter(listed).map((phrase): PhraseSummary => ({
       id: phrase.id,
       text: phrase.text,
       pins: (pinsOf.get(phrase.id) ?? []).map(pinFieldsOf),
@@ -148,14 +160,14 @@ export async function listPhrases({ request, env }: RouteContext): Promise<Respo
       lastShownAt: phrase.lastShownAt,
     })),
   );
-}
+};
 
-function insertPins(
+const insertPins = (
   db: D1Database,
   phraseId: number | "newest",
   pins: PinFields[],
-): D1PreparedStatement {
-  return db
+): D1PreparedStatement =>
+  db
     .prepare(
       `INSERT INTO pins (phrase_id, kind, date, month, day, weekday, slot)
        SELECT coalesce(?, (SELECT max(id) FROM phrases)), value ->> 'kind', value ->> 'date',
@@ -163,9 +175,8 @@ function insertPins(
        FROM json_each(?) ORDER BY key`,
     )
     .bind(phraseId === "newest" ? null : phraseId, JSON.stringify(pins));
-}
 
-export async function createPhrase({ request, env, now }: RouteContext): Promise<Response> {
+export const createPhrase = async ({ request, env, now }: RouteContext): Promise<Response> => {
   const { text, pins } = phraseInput(await jsonBody(request));
   const stamp = now.toISOString();
   const [inserted] = await env.DB.batch<{ id: number }>([
@@ -178,10 +189,15 @@ export async function createPhrase({ request, env, now }: RouteContext): Promise
   ]);
   const id = inserted?.results[0]?.id;
   if (id === undefined) throw new Error("D1 returned no id for the new phrase");
-  return Response.json({ id }, { status: 201 });
-}
+  return Response.json({ id } satisfies CreatedPhrase, { status: 201 });
+};
 
-export async function updatePhrase({ request, env, now, params }: RouteContext): Promise<Response> {
+export const updatePhrase = async ({
+  request,
+  env,
+  now,
+  params,
+}: RouteContext): Promise<Response> => {
   const id = idParam(params);
   const { text, pins } = phraseInput(await jsonBody(request));
   if ((await readPhrase(env.DB, id)) === null) return notFound();
@@ -195,39 +211,37 @@ export async function updatePhrase({ request, env, now, params }: RouteContext):
     insertPins(env.DB, id, pins),
   ]);
   return noContent();
-}
+};
 
-export async function deletePhrase({ env, params }: RouteContext): Promise<Response> {
+export const deletePhrase = async ({ env, params }: RouteContext): Promise<Response> => {
   const id = idParam(params);
   const [deleted] = await env.DB.batch([
     env.DB.prepare("DELETE FROM phrases WHERE id = ?").bind(id),
     ...clearFromWall(env.DB, [id]),
   ]);
   return (deleted?.meta.changes ?? 0) > 0 ? noContent() : notFound();
-}
+};
 
-function showUntil(db: D1Database, id: number, until: Date, now: Date): D1PreparedStatement[] {
-  return [
-    db
-      .prepare("UPDATE phrases SET last_shown_at = ?, shown_count = shown_count + 1 WHERE id = ?")
-      .bind(now.toISOString(), id),
-    db
-      .prepare(
-        `UPDATE display_state SET override_phrase_id = ?, override_until = ?
-         WHERE id = 1 AND EXISTS (SELECT 1 FROM phrases WHERE id = ?)`,
-      )
-      .bind(id, until.toISOString(), id),
-  ];
-}
+const showUntil = (db: D1Database, id: number, until: Date, now: Date): D1PreparedStatement[] => [
+  db
+    .prepare("UPDATE phrases SET last_shown_at = ?, shown_count = shown_count + 1 WHERE id = ?")
+    .bind(now.toISOString(), id),
+  db
+    .prepare(
+      `UPDATE display_state SET override_phrase_id = ?, override_until = ?
+       WHERE id = 1 AND EXISTS (SELECT 1 FROM phrases WHERE id = ?)`,
+    )
+    .bind(id, until.toISOString(), id),
+];
 
-export async function showPhrase({ env, now, params }: RouteContext): Promise<Response> {
+export const showPhrase = async ({ env, now, params }: RouteContext): Promise<Response> => {
   const id = idParam(params);
   const slot = slotAt(now, await readPhraseTimes(env.DB));
   const [shown] = await env.DB.batch(showUntil(env.DB, id, slot.end, now));
   return (shown?.meta.changes ?? 0) > 0 ? noContent() : notFound();
-}
+};
 
-export async function skip({ env, now }: RouteContext): Promise<Response> {
+export const skip = async ({ env, now }: RouteContext): Promise<Response> => {
   const db = env.DB;
   const [times, phrases, pins] = await Promise.all([
     readPhraseTimes(db),
@@ -238,20 +252,22 @@ export async function skip({ env, now }: RouteContext): Promise<Response> {
   // the next slot's rotation draw, which status lists as next unless that slot is pinned
   const id = await rotationPhrase(slotAt(slot.end, times), phrases, pins);
   if (id === null) {
-    return Response.json({ error: "No phrase is left in rotation" }, { status: 409 });
+    return Response.json({ error: "No phrase is left in rotation" } satisfies ErrorResponse, {
+      status: 409,
+    });
   }
   await db.batch(showUntil(db, id, slot.end, now));
   return noContent();
-}
+};
 
-export async function fullRefresh({ env }: RouteContext): Promise<Response> {
+export const fullRefresh = async ({ env }: RouteContext): Promise<Response> => {
   await env.DB.prepare(
     "UPDATE display_state SET full_refresh_seq = full_refresh_seq + 1 WHERE id = 1",
   ).run();
   return noContent();
-}
+};
 
-function specialDayFieldsOf({
+const specialDayFieldsOf = ({
   kind,
   month,
   day,
@@ -259,15 +275,12 @@ function specialDayFieldsOf({
   baseYear,
   icon,
   rank,
-}: SpecialDay): SpecialDayFields {
-  return { kind, month, day, greeting, baseYear, icon, rank };
-}
+}: SpecialDay): SpecialDayFields => ({ kind, month, day, greeting, baseYear, icon, rank });
 
-export async function getSpecialDays({ env }: RouteContext): Promise<Response> {
-  return Response.json((await readSpecialDays(env.DB)).map(specialDayFieldsOf));
-}
+export const getSpecialDays = async ({ env }: RouteContext): Promise<Response> =>
+  Response.json((await readSpecialDays(env.DB)).map(specialDayFieldsOf));
 
-export async function saveSpecialDays({ request, env }: RouteContext): Promise<Response> {
+export const saveSpecialDays = async ({ request, env }: RouteContext): Promise<Response> => {
   const days = specialDaysInput(await jsonBody(request));
   await env.DB.batch([
     env.DB.prepare("DELETE FROM special_days"),
@@ -279,17 +292,17 @@ export async function saveSpecialDays({ request, env }: RouteContext): Promise<R
     ).bind(JSON.stringify(days)),
   ]);
   return Response.json(days);
-}
+};
 
-function settingsBody({ first, second }: PhraseTimes) {
-  return { firstPhraseTime: first, secondPhraseTime: second };
-}
+const settingsBody = ({ first, second }: PhraseTimes): Settings => ({
+  firstPhraseTime: first,
+  secondPhraseTime: second,
+});
 
-export async function getSettings({ env }: RouteContext): Promise<Response> {
-  return Response.json(settingsBody(await readPhraseTimes(env.DB)));
-}
+export const getSettings = async ({ env }: RouteContext): Promise<Response> =>
+  Response.json(settingsBody(await readPhraseTimes(env.DB)));
 
-export async function saveSettings({ request, env, now }: RouteContext): Promise<Response> {
+export const saveSettings = async ({ request, env, now }: RouteContext): Promise<Response> => {
   const times = phraseTimesInput(await jsonBody(request));
   const db = env.DB;
   const before = slotAt(now, await readPhraseTimes(db));
@@ -313,4 +326,4 @@ export async function saveSettings({ request, env, now }: RouteContext): Promise
   }
   await db.batch(statements);
   return Response.json(settingsBody(times));
-}
+};
