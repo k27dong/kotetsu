@@ -9,7 +9,7 @@
     {
       "binding": "DB",
       "database_name": "kotetsu",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "e618cc5b-48c9-45f0-b791-fbabb63ac2bd",
       "migrations_dir": "migrations",
     },
   ],
