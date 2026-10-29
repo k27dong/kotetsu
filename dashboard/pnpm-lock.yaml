@@ -18,6 +18,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: 5.20261028.1
         version: 5.20261028.1
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       prettier:
         specifier: 3.9.10
         version: 3.9.10

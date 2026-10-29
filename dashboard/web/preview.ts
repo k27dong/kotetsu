@@ -1,4 +1,4 @@
-const FONT_FAMILY = '"LXGW WenKai GB Screen"';
+export const FONT_FAMILY = '"LXGW WenKai GB Screen"';
 const SCREEN = { width: 800, height: 480 };
 const BOX = { left: 32, top: 24, width: 736, height: 300 };
 const STRIP_TOP = 336;
@@ -19,22 +19,29 @@ const BREAK_PUNCTUATION = /[。，！？、；：]/u;
 const NO_LINE_START = /[。，、：；！？」』）】》〉〕〗’”,.;:!?)\]}%…]/u;
 const NO_LINE_END = /[「『（【《〈〔〖‘“(\[{]/u;
 
-function gapBetween(a, b) {
-  return (DIGIT.test(a) && HAN.test(b)) || (HAN.test(a) && DIGIT.test(b));
-}
+export type Fit = { sizePx: number; lines: string[]; fits: boolean };
+export type Measurer = { font: string; measureText(text: string): { width: number } };
+type Line = { text: string; start: number; paragraphStart: boolean };
+type Cut = { after: number; spaces: number };
 
-function breakAllowed(a, b) {
+const gapBetween = (a: string, b: string): boolean =>
+  (DIGIT.test(a) && HAN.test(b)) || (HAN.test(a) && DIGIT.test(b));
+
+const breakBefore = (characters: string[], index: number): boolean => {
+  const a = characters[index - 1];
+  const b = characters[index];
+  if (a === undefined || b === undefined) return true;
   if (b === " ") return false;
   if (a === " ") return true;
   if (NO_LINE_START.test(b) || NO_LINE_END.test(a)) return false;
   const bothLatin = WORD.test(a) && WORD.test(b) && !HAN.test(a) && !HAN.test(b);
   return !bothLatin;
-}
+};
 
-function runsOf(line) {
-  const runs = [];
+const runsOf = (line: string): string[] => {
+  const runs: string[] = [];
   let run = "";
-  let previous = null;
+  let previous: string | null = null;
   for (const character of line) {
     if (previous !== null && gapBetween(previous, character)) {
       runs.push(run);
@@ -45,15 +52,20 @@ function runsOf(line) {
   }
   runs.push(run);
   return runs;
-}
+};
 
-function lineWidth(ctx, sizePx, line) {
+const lineWidth = (ctx: Measurer, sizePx: number, line: string): number => {
   const runs = runsOf(line);
   const text = runs.reduce((sum, run) => sum + ctx.measureText(run).width, 0);
   return text + (runs.length - 1) * sizePx * DIGIT_GAP_EM;
-}
+};
 
-function lineEndFrom(ctx, sizePx, characters, start) {
+const lineEndFrom = (
+  ctx: Measurer,
+  sizePx: number,
+  characters: string[],
+  start: number,
+): number => {
   let end = start;
   let lastBreak = -1;
   while (end < characters.length) {
@@ -63,25 +75,18 @@ function lineEndFrom(ctx, sizePx, characters, start) {
       .trimEnd();
     if (lineWidth(ctx, sizePx, candidate) > BOX.width) break;
     end++;
-    if (end < characters.length && breakAllowed(characters[end - 1], characters[end])) {
-      lastBreak = end;
-    }
+    if (end < characters.length && breakBefore(characters, end)) lastBreak = end;
   }
   if (end === characters.length) return end;
   if (lastBreak > start) return lastBreak;
   let wordEnd = Math.max(end, start + 1);
-  while (
-    wordEnd < characters.length &&
-    !breakAllowed(characters[wordEnd - 1], characters[wordEnd])
-  ) {
-    wordEnd++;
-  }
+  while (wordEnd < characters.length && !breakBefore(characters, wordEnd)) wordEnd++;
   return wordEnd; // too wide for the box, which refuses this size
-}
+};
 
-function layoutLines(ctx, sizePx, text) {
+const layoutLines = (ctx: Measurer, sizePx: number, text: string): Line[] => {
   ctx.font = `${sizePx}px ${FONT_FAMILY}`;
-  const lines = [];
+  const lines: Line[] = [];
   let offset = 0;
   for (const paragraph of text.split("\n")) {
     const characters = [...paragraph];
@@ -99,48 +104,56 @@ function layoutLines(ctx, sizePx, text) {
     offset += characters.length + 1;
   }
   return lines;
-}
+};
 
-function blockFits(ctx, sizePx, lines) {
+const blockFits = (ctx: Measurer, sizePx: number, lines: Line[]): boolean => {
   if (lines.length * sizePx * LINE_HEIGHT > BOX.height) return false;
   return lines.every((line) => lineWidth(ctx, sizePx, line.text) <= BOX.width);
-}
+};
 
-function punctuationCut(ctx, sizePx, line) {
+const punctuationCut = (ctx: Measurer, sizePx: number, line: string): Cut | null => {
   const characters = [...line];
   const width = lineWidth(ctx, sizePx, line);
-  let cut = null;
-  for (let i = 0; i < characters.length; i++) {
-    if (!BREAK_PUNCTUATION.test(characters[i])) continue;
+  let cut: Cut | null = null;
+  for (const [i, character] of characters.entries()) {
+    if (!BREAK_PUNCTUATION.test(character)) continue;
     let resume = i + 1;
-    while (resume < characters.length && SPACE.test(characters[resume])) resume++;
-    if (resume === characters.length) return null;
-    if (PUNCTUATION.test(characters[resume])) continue; // a closing quote stays with its punctuation
+    while (SPACE.test(characters[resume] ?? "")) resume++;
+    const next = characters[resume];
+    if (next === undefined) return null;
+    if (PUNCTUATION.test(next)) continue; // a closing quote stays with its punctuation
     const trailingX = lineWidth(ctx, sizePx, characters.slice(0, i + 1).join(""));
     if (trailingX * 4 >= width * 3) cut = { after: i + 1, spaces: resume - i - 1 };
   }
   return cut;
-}
+};
 
-function preferPunctuationBreaks(ctx, sizePx, text, lines) {
+const preferPunctuationBreaks = (
+  ctx: Measurer,
+  sizePx: number,
+  text: string,
+  lines: Line[],
+): Line[] => {
   let characters = [...text];
   let current = lines;
   const count = lines.length;
   for (let i = 0; i + 1 < count; i++) {
-    if (current[i + 1].paragraphStart) continue;
-    const cut = punctuationCut(ctx, sizePx, current[i].text);
+    const line = current[i];
+    const following = current[i + 1];
+    if (line === undefined || following === undefined || following.paragraphStart) continue;
+    const cut = punctuationCut(ctx, sizePx, line.text);
     if (cut === null) continue;
-    const moved = characters.toSpliced(current[i].start + cut.after, cut.spaces, "\n");
+    const moved = characters.toSpliced(line.start + cut.after, cut.spaces, "\n");
     const next = layoutLines(ctx, sizePx, moved.join(""));
     if (next.length !== count || !blockFits(ctx, sizePx, next)) continue;
     characters = moved;
     current = next;
   }
   return current;
-}
+};
 
-export function fitPhrase(ctx, text) {
-  let lines = [];
+export const fitPhrase = (ctx: Measurer, text: string): Fit => {
+  let lines: Line[] = [];
   for (let sizePx = SIZE_MAX; sizePx >= SIZE_MIN; sizePx -= SIZE_STEP) {
     lines = layoutLines(ctx, sizePx, text);
     if (blockFits(ctx, sizePx, lines)) {
@@ -149,20 +162,20 @@ export function fitPhrase(ctx, text) {
     }
   }
   return { sizePx: SIZE_MIN, lines: lines.map((line) => line.text), fits: false };
-}
+};
 
-function cutAtHalf(ctx, width, height) {
+const cutAtHalf = (ctx: CanvasRenderingContext2D, width: number, height: number): void => {
   const image = ctx.getImageData(0, 0, width, height);
   const pixels = image.data;
   for (let i = 0; i < pixels.length; i += 4) {
-    const ink = pixels[i] < 128 ? 0 : 255;
+    const ink = (pixels[i] ?? 255) < 128 ? 0 : 255;
     pixels[i] = pixels[i + 1] = pixels[i + 2] = ink;
     pixels[i + 3] = 255;
   }
   ctx.putImageData(image, 0, 0);
-}
+};
 
-function drawLines(ctx, { sizePx, lines }) {
+const drawLines = (ctx: CanvasRenderingContext2D, { sizePx, lines }: Fit): void => {
   ctx.font = `${sizePx}px ${FONT_FAMILY}`;
   ctx.fillStyle = "#000";
   ctx.textBaseline = "alphabetic";
@@ -182,10 +195,15 @@ function drawLines(ctx, { sizePx, lines }) {
       x += ctx.measureText(run).width + sizePx * DIGIT_GAP_EM;
     }
   });
-}
+};
 
-export function drawPreview(canvas, text, screenPng) {
+export const drawPreview = (
+  canvas: HTMLCanvasElement,
+  text: string,
+  screenPng: CanvasImageSource | null,
+): Fit => {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (ctx === null) throw new Error("The browser gave no 2D context for the preview");
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, SCREEN.width, SCREEN.height);
   const fit = fitPhrase(ctx, text);
@@ -197,7 +215,10 @@ export function drawPreview(canvas, text, screenPng) {
   ctx.restore();
   cutAtHalf(ctx, SCREEN.width, STRIP_TOP);
   const stripHeight = SCREEN.height - STRIP_TOP;
-  if (screenPng) {
+  if (screenPng === null) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(BOX.left, STRIP_TOP, BOX.width, 2);
+  } else {
     ctx.drawImage(
       screenPng,
       0,
@@ -209,9 +230,6 @@ export function drawPreview(canvas, text, screenPng) {
       SCREEN.width,
       stripHeight,
     );
-  } else {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(BOX.left, STRIP_TOP, BOX.width, 2);
   }
   return fit;
-}
+};
