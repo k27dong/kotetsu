@@ -2,5 +2,6 @@ pi/build*/
 pi/fonts/
 dashboard/node_modules/
 dashboard/.wrangler/
+dashboard/dist/
 dashboard/.dev.vars
 .DS_Store
