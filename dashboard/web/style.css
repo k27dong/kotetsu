@@ -5,6 +5,7 @@
   --line: #c4c2bb;
   --field: #fff;
   --seal: #b4301f;
+  --picked: #dcdad1;
   --ui:
     -apple-system, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC",
     "Noto Sans CJK SC", sans-serif;
@@ -19,6 +20,7 @@
     --line: #3d3d3a;
     --field: #262625;
     --seal: #e4573f;
+    --picked: #2e2e2b;
   }
 }
 
@@ -48,10 +50,27 @@ main,
 footer,
 header.top nav {
   width: 100%;
-  max-width: 640px;
+  max-width: 1360px;
   margin: 0 auto;
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
+}
+
+@media (min-width: 1000px) {
+  main,
+  footer,
+  header.top nav {
+    padding-left: max(40px, env(safe-area-inset-left));
+    padding-right: max(40px, env(safe-area-inset-right));
+  }
+}
+
+main > * {
+  max-width: 640px; /* every page but Phrases keeps a reading width */
+}
+
+main > .phrases-page {
+  max-width: none;
 }
 
 main {
@@ -343,27 +362,47 @@ label.choice {
   fill: currentColor;
 }
 
-.search {
-  margin-bottom: 12px;
+.tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
 }
 
-.chips {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 4px;
+.tools select {
+  width: auto;
 }
 
-.chips button {
-  padding: 0 16px;
-  border-color: var(--line);
-  border-radius: 22px;
-  font-size: 15px;
+.split {
+  display: grid;
+  gap: 32px;
+  align-items: start;
 }
 
-.chips button[aria-pressed="true"] {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
+.count {
+  padding: 12px 8px 4px;
+}
+
+.panel-title {
+  margin-bottom: 16px;
+  font: 600 22px/1.2 var(--figure);
+}
+
+.hint {
+  padding: 12px 0;
+}
+
+@media (min-width: 1000px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) 440px;
+  }
+
+  .panel {
+    position: sticky;
+    top: 48px; /* under the sticky nav */
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto; /* a long editor scrolls on its own, so Save stays reachable beside a long list */
+    padding: 12px 2px 24px;
+  }
 }
 
 .phrases {
@@ -382,29 +421,55 @@ label.choice {
 
 .phrases a {
   display: grid;
-  grid-template-columns: 44px 1fr;
-  column-gap: 8px;
-  padding: 12px 0;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 8px;
+  border-radius: 6px;
   text-decoration: none;
 }
 
-.phrases .text {
-  white-space: pre-line;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
+.phrases a[aria-current="true"] {
+  background: var(--picked);
 }
 
-.phrases .pin,
-.phrases .flag {
-  grid-column: 2;
-  margin-top: 2px;
+.phrases .text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.phrases .note {
+  max-width: 40ch;
+  overflow: hidden;
   font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .phrases .flag {
   color: var(--seal);
+}
+
+@media (max-width: 599px) {
+  .tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tools select {
+    width: 100%;
+  }
+
+  .phrases a {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .phrases .note {
+    grid-column: 2;
+    max-width: none;
+    white-space: normal;
+  }
 }
 
 .empty {

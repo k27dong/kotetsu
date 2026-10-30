@@ -3,7 +3,6 @@ import type {
   CreatedPhrase,
   LoginRequest,
   PhraseFields,
-  PhraseFilter,
   PhraseSummary,
   Settings,
   SpecialDayFields,
@@ -67,14 +66,6 @@ const send = async (path: string, method: string, body?: unknown): Promise<void>
   await request(path, method, body);
 };
 
-const phraseQuery = (q: string, filter: PhraseFilter): string => {
-  const params = new URLSearchParams();
-  if (q.trim() !== "") params.set("q", q);
-  if (filter !== "all") params.set("filter", filter);
-  const query = params.toString();
-  return query === "" ? "" : `?${query}`;
-};
-
 export const api = {
   login: async (password: string): Promise<LoginResult> => {
     let response: Response;
@@ -99,8 +90,7 @@ export const api = {
       throw error;
     }
   },
-  phrases: (q: string, filter: PhraseFilter): Promise<PhraseSummary[]> =>
-    json(`/api/phrases${phraseQuery(q, filter)}`),
+  phrases: (): Promise<PhraseSummary[]> => json("/api/phrases"),
   createPhrase: (fields: PhraseFields): Promise<CreatedPhrase> =>
     json("/api/phrases", "POST", fields),
   updatePhrase: (id: number, fields: PhraseFields): Promise<void> =>
