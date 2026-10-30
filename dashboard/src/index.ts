@@ -79,6 +79,10 @@ const respond = async (route: Route, context: RouteContext): Promise<Response> =
 export default {
   fetch: async (request, env): Promise<Response> => {
     const url = new URL(request.url);
+    if (request.headers.get("X-Forwarded-Proto") === "http") {
+      url.protocol = "https:"; // the session cookie is Secure, so a browser on http drops it
+      return Response.redirect(url.toString(), 308);
+    }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
 
     const now = requestTime(request, env);

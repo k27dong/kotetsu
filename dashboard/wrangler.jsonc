@@ -3,7 +3,7 @@
   "name": "kotetsu",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-23",
-  "assets": { "directory": "dist", "binding": "ASSETS" },
+  "assets": { "directory": "dist", "binding": "ASSETS", "run_worker_first": true },
   "build": { "command": "pnpm build", "watch_dir": "web" },
   "d1_databases": [
     {
