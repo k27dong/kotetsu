@@ -52,7 +52,6 @@ export type StatusResponse = {
   nextSpecialDay: (Greeting & { date: string }) | null;
 };
 
-export type PhraseFilter = "all" | "pinned" | "english";
 export type PhraseSummary = {
   id: number;
   text: string;

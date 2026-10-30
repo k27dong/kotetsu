@@ -4,7 +4,7 @@ import { h } from "./dom";
 import type { Page } from "./page";
 import { editPage } from "./pages/edit";
 import { nowPage } from "./pages/now";
-import { phrasesPage } from "./pages/phrases";
+import { isWideScreen, phrasesPage } from "./pages/phrases";
 import { settingsPage } from "./pages/settings";
 import { signInPage } from "./pages/sign-in";
 import { specialDaysPage } from "./pages/special-days";
@@ -44,9 +44,9 @@ const parseRoute = (hash: string): Route | null =>
 const openPage = (route: Route): Promise<Page> =>
   match(route)
     .with({ page: "now" }, nowPage)
-    .with({ page: "phrases" }, phrasesPage)
-    .with({ page: "new" }, () => editPage(null))
-    .with({ page: "edit" }, ({ id }) => editPage(id))
+    .with({ page: "phrases" }, () => phrasesPage())
+    .with({ page: "new" }, () => (isWideScreen() ? phrasesPage(null) : editPage(null)))
+    .with({ page: "edit" }, ({ id }) => (isWideScreen() ? phrasesPage(id) : editPage(id)))
     .with({ page: "special-days" }, specialDaysPage)
     .with({ page: "settings" }, settingsPage)
     .exhaustive();

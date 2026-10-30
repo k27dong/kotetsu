@@ -1,4 +1,3 @@
-import { match } from "ts-pattern";
 import { activeOverride, rotationPhrase, scheduledPhrase } from "./api_pi";
 import type {
   CreatedPhrase,
@@ -31,16 +30,7 @@ import {
   type SpecialDay,
 } from "./rules";
 import { parseDate, shiftDate, slotAt, warsawDate, type PhraseTimes } from "./time";
-import {
-  InputError,
-  jsonBody,
-  phraseFilter,
-  phraseInput,
-  phraseTimesInput,
-  specialDaysInput,
-} from "./validate";
-
-const HAN = /\p{Script=Han}/u;
+import { InputError, jsonBody, phraseInput, phraseTimesInput, specialDaysInput } from "./validate";
 
 const idParam = (params: Record<string, string>): number => {
   const id = Number(params.id);
@@ -127,8 +117,6 @@ export const screenPng = async ({ env }: RouteContext): Promise<Response> => {
   return new Response(new Uint8Array(row.png), { headers });
 };
 
-const fold = (text: string): string => text.normalize("NFKC").toLowerCase();
-
 const pinFieldsOf = ({ kind, date, month, day, weekday, slot }: Pin): PinFields => ({
   kind,
   date,
@@ -138,21 +126,11 @@ const pinFieldsOf = ({ kind, date, month, day, weekday, slot }: Pin): PinFields 
   slot,
 });
 
-export const listPhrases = async ({ request, env }: RouteContext): Promise<Response> => {
-  const params = new URL(request.url).searchParams;
-  const filter = phraseFilter(params.get("filter"));
-  const query = fold(params.get("q") ?? "").trim();
+export const listPhrases = async ({ env }: RouteContext): Promise<Response> => {
   const [phrases, pins] = await Promise.all([readPhrases(env.DB), readPins(env.DB)]);
   const pinsOf = Map.groupBy(pins, (pin) => pin.phraseId);
-  const listed = (phrase: PhraseRow): boolean =>
-    fold(phrase.text).includes(query) &&
-    match(filter)
-      .with("all", () => true)
-      .with("pinned", () => pinsOf.has(phrase.id))
-      .with("english", () => !HAN.test(phrase.text))
-      .exhaustive();
   return Response.json(
-    phrases.filter(listed).map((phrase): PhraseSummary => ({
+    phrases.map((phrase): PhraseSummary => ({
       id: phrase.id,
       text: phrase.text,
       pins: (pinsOf.get(phrase.id) ?? []).map(pinFieldsOf),

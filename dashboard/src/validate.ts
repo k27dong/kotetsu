@@ -2,7 +2,6 @@ import { match } from "ts-pattern";
 import type {
   Icon,
   PhraseFields,
-  PhraseFilter,
   PinFields,
   PinKind,
   PinSlot,
@@ -24,7 +23,6 @@ const PIN_DATE_FIELDS = ["date", "month", "day", "weekday"] as const;
 const SPECIAL_DAY_KINDS: readonly SpecialDayFields["kind"][] = ["yearly", "lunar_yearly"];
 const ICONS: readonly Icon[] = ["heart", "rings", "cake", "cat", "hearts", "star"];
 const REFRESHES: readonly ScreenReport["refresh"][] = ["full", "partial"];
-const FILTERS: readonly PhraseFilter[] = ["all", "pinned", "english"];
 const CONTROL = /\p{Cc}/u;
 const CONTROL_BUT_LINE_FEED = /(?!\n)\p{Cc}/u;
 
@@ -170,9 +168,6 @@ export const phraseInput = (value: unknown): PhraseFields => {
     pins: listOf(fields.pins, "pins").map((pin, index) => pinFields(pin, `Pin ${index + 1}`)),
   };
 };
-
-export const phraseFilter = (value: string | null): PhraseFilter =>
-  value === null ? "all" : oneOf(value, FILTERS, "filter");
 
 const phraseTime = (value: unknown, what: string): string => {
   if (typeof value !== "string" || !isPhraseTime(value)) {

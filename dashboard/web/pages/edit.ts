@@ -1,5 +1,5 @@
 import { match } from "ts-pattern";
-import type { PhraseFields, PinKind, PinSlot } from "../../src/api_types";
+import type { PhraseFields, PhraseSummary, PinKind, PinSlot, Settings } from "../../src/api_types";
 import { actionButton, showFailure } from "../actions";
 import { api, ApiError } from "../api";
 import { h, numbered, type Option, select } from "../dom";
@@ -129,7 +129,16 @@ const pinEditor = (
   return row;
 };
 
-const dangerZone = (id: number, messages: HTMLElement): HTMLDivElement => {
+type Done = {
+  saved: (id: number) => Promise<void> | void;
+  deleted: () => Promise<void> | void;
+};
+
+const dangerZone = (
+  id: number,
+  messages: HTMLElement,
+  deleted: Done["deleted"],
+): HTMLDivElement => {
   const confirmation = h(
     "div",
     { class: "confirm", hidden: true },
@@ -139,7 +148,7 @@ const dangerZone = (id: number, messages: HTMLElement): HTMLDivElement => {
       messages,
       async () => {
         await api.deletePhrase(id);
-        location.hash = "#/phrases";
+        await deleted();
       },
       { type: "button", class: "danger" },
     ),
@@ -171,22 +180,18 @@ const dangerZone = (id: number, messages: HTMLElement): HTMLDivElement => {
   return h("div", { class: "danger-zone" }, deleteLink, confirmation);
 };
 
-export const editPage = async (id: number | null): Promise<Page> => {
-  const blank: PhraseFields = { text: "", pins: [] };
-  const [phrase, settings] = await Promise.all([
-    id === null
-      ? blank
-      : api.phrases("", "all").then((phrases) => phrases.find((row) => row.id === id)),
-    api.settings(),
-  ]);
-  if (phrase === undefined) throw new ApiError(404, `There is no phrase #${id}`);
-
+export const phraseEditor = (
+  phrase: PhraseSummary | null,
+  settings: Settings,
+  done: Done,
+): Required<Page> => {
+  const id = phrase === null ? null : phrase.id;
   const slots: readonly Option<PinSlot>[] = [
     ["all_day", "All day"],
     ["morning", `Morning, ${settings.firstPhraseTime} to ${settings.secondPhraseTime}`],
     ["evening", `Evening, ${settings.secondPhraseTime} to ${settings.firstPhraseTime}`],
   ];
-  const pins = phrase.pins.map(pinOf);
+  const pins = (phrase?.pins ?? []).map(pinOf);
   let mode: Mode = pins.length > 0 ? "pinned" : "rotation";
   const messages = h("p", { class: "error" });
 
@@ -195,7 +200,7 @@ export const editPage = async (id: number | null): Promise<Page> => {
     rows: 3,
     placeholder: "The phrase",
     autocapitalize: "off",
-    value: phrase.text,
+    value: phrase?.text ?? "",
   });
   const canvas = h("canvas", { width: 800, height: 480 });
   const sizeLabel = h("p", { class: "size" });
@@ -300,10 +305,8 @@ export const editPage = async (id: number | null): Promise<Page> => {
   });
 
   const view = h(
-    "section",
-    { class: "edit" },
-    h("a", { class: "crumb", href: "#/phrases" }, "‹ Phrases"),
-    h("h1", {}, id === null ? "New phrase" : `Phrase #${id}`),
+    "div",
+    { class: "editor" },
     textarea,
     h("div", { class: "preview" }, canvas, sizeLabel),
     h(
@@ -325,8 +328,7 @@ export const editPage = async (id: number | null): Promise<Page> => {
         "Save",
         messages,
         async () => {
-          await save();
-          location.hash = "#/phrases";
+          await done.saved(await save());
         },
         { class: "primary" },
       ),
@@ -336,7 +338,27 @@ export const editPage = async (id: number | null): Promise<Page> => {
       }),
     ),
     messages,
-    id === null ? null : dangerZone(id, messages),
+    id === null ? null : dangerZone(id, messages, done.deleted),
   );
   return { view, leave: () => clearTimeout(pendingDraw) };
+};
+
+export const editPage = async (id: number | null): Promise<Page> => {
+  const [phrase, settings] = await Promise.all([
+    id === null ? null : api.phrases().then((phrases) => phrases.find((row) => row.id === id)),
+    api.settings(),
+  ]);
+  if (phrase === undefined) throw new ApiError(404, `There is no phrase #${id}`);
+  const toList = (): void => {
+    location.hash = "#/phrases";
+  };
+  const editor = phraseEditor(phrase, settings, { saved: toList, deleted: toList });
+  const view = h(
+    "section",
+    { class: "edit" },
+    h("a", { class: "crumb", href: "#/phrases" }, "‹ Phrases"),
+    h("h1", {}, id === null ? "New phrase" : `Phrase #${id}`),
+    editor.view,
+  );
+  return { view, leave: editor.leave };
 };
