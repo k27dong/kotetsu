@@ -110,6 +110,10 @@ static int compare_warnings(const void *a, const void *b) {
 size_t warning_parse_imgw(const char *json, int64_t now_s, char labels[][WARNING_LABEL_BYTES],
                           int *levels, size_t max) {
     cJSON *root = cJSON_Parse(json);
+    if (cJSON_IsString(json_member(root, "message"))) { // IMGW's answer while nothing is in force
+        cJSON_Delete(root);
+        return 0;
+    }
     if (!cJSON_IsArray(root)) {
         log_error("IMGW's warnings aren't a JSON array");
         cJSON_Delete(root);
