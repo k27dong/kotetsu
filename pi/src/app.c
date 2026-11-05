@@ -29,7 +29,6 @@
 #include "sources/weather.h"
 #include "sources/wifi.h"
 
-#define WIRELESS_PATH    "/proc/net/wireless"
 #define TEMPERATURE_PATH "/sys/class/thermal/thermal_zone0/temp"
 
 static constexpr int CLEANUP_MINUTE_DEFAULT = 10 * 60; // halfway between 04:00 and 16:00
@@ -442,7 +441,7 @@ static void upload_report(struct app *app, const struct frame *frame, int64_t to
             .missing_glyphs_id = missing_glyphs_id,
             .last_error = app->last_error[0] != '\0' ? app->last_error : nullptr,
     };
-    report.has_wifi_signal = wifi_read_signal(WIRELESS_PATH, &report.wifi_signal);
+    report.has_wifi_signal = wifi_read_signal(&report.wifi_signal);
     report.has_pi_temperature = read_temperature(&report.pi_temperature_c);
     char json[REPORT_JSON_BYTES];
     if (dashboard_report_json(&report, json, sizeof json)) {

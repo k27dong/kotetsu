@@ -21,7 +21,7 @@ AlignEscapedNewlines: Left
 BreakAfterReturnType: None
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^<(cairo|cjson|curl|fontconfig|freetype|ft2build|gio|glib|gpiod|harfbuzz|pango|png|spng)'
+  - Regex: '^<(cairo|cjson|curl|fontconfig|freetype|ft2build|gio|glib|gpiod|harfbuzz|netlink|pango|png|spng)'
     Priority: 2
   - Regex: '^<'
     Priority: 1
