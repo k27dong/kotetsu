@@ -71,7 +71,7 @@ struct weather_fetched { // one thread fills each field
 
 bool weather_due(const struct weather_state *state, time_t now);
 struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now);
-struct air weather_fetch_air(time_t now);
+struct air weather_fetch_air(void);
 void weather_absorb(struct weather_state *state, const struct weather_fetched *fetched, time_t now);
 struct weather_view weather_view(const struct weather_state *state, time_t now);
 [[nodiscard]] bool weather_parse_open_meteo(const char *json, time_t now,

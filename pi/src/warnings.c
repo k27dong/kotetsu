@@ -16,7 +16,6 @@
 #define IMGW_WARNINGS_URL  "https://danepubliczne.imgw.pl/api/data/warningsmeteo"
 #define WARSAW_COUNTY_CODE "1465"
 
-static constexpr long HTTP_OK = 200;
 static constexpr size_t IMGW_DATE_LENGTH = sizeof "YYYY-MM-DD" - 1;
 static constexpr size_t IMGW_TIME_LENGTH = sizeof "YYYY-MM-DD HH:MM:SS" - 1;
 
@@ -149,12 +148,10 @@ struct warnings warnings_parse(const char *json, time_t now) {
 }
 
 struct warnings warnings_fetch(time_t now) {
-    struct http_response answer = http_get(IMGW_WARNINGS_URL, nullptr);
+    struct http_response answer = http_get_ok(IMGW_WARNINGS_URL);
     struct warnings warnings = {};
-    if (answer.ok && answer.status == HTTP_OK) {
+    if (answer.ok) {
         warnings = warnings_parse(answer.body, now);
-    } else if (answer.ok) {
-        log_error("%s answered %ld", IMGW_WARNINGS_URL, answer.status);
     }
     http_response_free(&answer);
     return warnings;

@@ -37,14 +37,12 @@ static constexpr int FETCH_PERIOD_SECONDS = 30 * SECONDS_PER_MINUTE;
 static constexpr int STALE_AFTER_SECONDS = 2 * SECONDS_PER_HOUR;
 static constexpr int OFFLINE_AFTER_SECONDS = 12 * SECONDS_PER_HOUR;
 static constexpr int OPEN_METEO_FAILURES_BEFORE_MET_NORWAY = 2;
-static constexpr long HTTP_OK = 200;
 static constexpr int POOR_AIR_EAQI = 60;
 static constexpr int EAQI_UNKNOWN = -1;
 static constexpr int NO_WEATHER_CODE = -1;
 static constexpr int FIRST_PRECIPITATION_CODE = 51;
 static constexpr int THUNDERSTORM_CODE = 95;
 static constexpr double IMPLAUSIBLE_DEGREES = 100.0;
-static constexpr int MINUTES_PER_HOUR = 60;
 // rain due from 20:00 isn't shown ahead; it shows once it starts
 static constexpr int PRECIPITATION_AHEAD_UNTIL_MINUTE = 20 * MINUTES_PER_HOUR;
 
@@ -152,13 +150,9 @@ static bool read_code(const cJSON *item, int *out) {
     return true;
 }
 
-static bool same_date(struct civil_date a, struct civil_date b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-}
-
 static bool shows_ahead(int code, time_t hour, time_t now) {
     return code >= FIRST_PRECIPITATION_CODE && hour + SECONDS_PER_HOUR > now &&
-           same_date(time_warsaw_date(hour), time_warsaw_date(now)) &&
+           time_same_date(time_warsaw_date(hour), time_warsaw_date(now)) &&
            time_warsaw_minute_of_day(hour) < PRECIPITATION_AHEAD_UNTIL_MINUTE;
 }
 
@@ -247,7 +241,7 @@ bool weather_parse_met_norway(const char *json, time_t now, struct weather_repor
 
         /* the latest entry that has begun is the weather now; today's give the range */
         const bool is_now = !have_now || entry_at <= now;
-        const bool is_today = same_date(time_warsaw_date(entry_at), today);
+        const bool is_today = time_same_date(time_warsaw_date(entry_at), today);
         if (!is_now && !is_today) {
             continue;
         }
@@ -295,19 +289,10 @@ bool weather_parse_eaqi(const char *json, int *eaqi) {
     return parsed;
 }
 
-static struct http_response fetch(const char *url) {
-    struct http_response response = http_get(url, nullptr);
-    if (response.ok && response.status != HTTP_OK) {
-        log_error("%s answered %ld", url, response.status);
-        http_response_free(&response);
-    }
-    return response;
-}
-
 struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now) {
     /* ask Open-Meteo */
     struct forecast forecast = {};
-    struct http_response answer = fetch(OPEN_METEO_URL);
+    struct http_response answer = http_get_ok(OPEN_METEO_URL);
     forecast.ok = answer.ok && weather_parse_open_meteo(answer.body, now, &forecast.report);
     http_response_free(&answer);
 
@@ -315,16 +300,16 @@ struct forecast weather_fetch_forecast(const struct weather_state *state, time_t
     if (forecast.ok || state->open_meteo_failures + 1 < OPEN_METEO_FAILURES_BEFORE_MET_NORWAY) {
         return forecast;
     }
-    answer = fetch(MET_NORWAY_URL);
+    answer = http_get_ok(MET_NORWAY_URL);
     forecast.ok = answer.ok && weather_parse_met_norway(answer.body, now, &forecast.report);
     forecast.from_met = forecast.ok;
     http_response_free(&answer);
     return forecast;
 }
 
-struct air weather_fetch_air([[maybe_unused]] time_t now) {
+struct air weather_fetch_air(void) {
     struct air air = {.eaqi = EAQI_UNKNOWN};
-    struct http_response answer = fetch(AIR_QUALITY_URL);
+    struct http_response answer = http_get_ok(AIR_QUALITY_URL);
     air.ok = answer.ok && weather_parse_eaqi(answer.body, &air.eaqi);
     http_response_free(&answer);
     return air;
