@@ -25,10 +25,6 @@ void screen_wall_init(struct wall *wall) {
     *wall = (struct wall){.cleanup_minute = CLEANUP_MINUTE_DEFAULT};
 }
 
-static bool same_date(struct civil_date a, struct civil_date b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-}
-
 static struct decision refresh_for(const struct wall *wall, const struct wanted *wanted) {
     /* an unknown glass or the dashboard's request is full, whatever the frame */
     if (!wall->known) {
@@ -45,7 +41,7 @@ static struct decision refresh_for(const struct wall *wall, const struct wanted 
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_PHRASE};
     }
-    if (!same_date(wanted->date, wall->date)) {
+    if (!time_same_date(wanted->date, wall->date)) {
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_DAY};
     }
@@ -74,7 +70,7 @@ struct decision screen_decide(struct wall *wall, const struct wanted *wanted, ti
     /* clean-up becomes due when two ticks on one day straddle the clean-up minute */
     wall->cleanup_minute = wanted->cleanup_minute;
     if (wall->last_tick != 0 &&
-        same_date(time_warsaw_date(wall->last_tick), time_warsaw_date(now)) &&
+        time_same_date(time_warsaw_date(wall->last_tick), time_warsaw_date(now)) &&
         time_warsaw_minute_of_day(wall->last_tick) < wall->cleanup_minute &&
         time_warsaw_minute_of_day(now) >= wall->cleanup_minute) {
         wall->cleanup_due = true;
