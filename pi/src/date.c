@@ -111,16 +111,6 @@ static int days_between(struct civil_date from, struct civil_date to) {
     return day_number(to) - day_number(from);
 }
 
-static struct civil_date next_day(struct civil_date date) {
-    return date_of_day_number(day_number(date) + 1);
-}
-
-static int weekday_index_from_monday(struct civil_date date) {
-    int days = (day_number(date) + THURSDAY_INDEX_FROM_MONDAY) %
-               DAYS_PER_WEEK; // 1970-01-01 was a Thursday
-    return days < 0 ? days + DAYS_PER_WEEK : days;
-}
-
 static const char *name_on(const struct named_day *days, int month, int day) {
     for (; days->name != nullptr; days++) {
         if (days->month == month && days->day == day) {
@@ -196,18 +186,16 @@ static const char *solar_term_on(struct civil_date date) {
     return nullptr;
 }
 
-static bool ends_lunar_month(struct civil_date date) {
-    struct lunar_date tomorrow;
-    return lunar_from_civil(next_day(date), &tomorrow) && tomorrow.day == 1;
-}
-
 static const char *festival(struct civil_date date, struct lunar_date lunar, const char *term) {
     if (!lunar.leap) {
         const char *lunar_festival = name_on(LUNAR_FESTIVALS, lunar.month, lunar.day);
         if (lunar_festival != nullptr) {
             return lunar_festival;
         }
-        if (lunar.month == 12 && ends_lunar_month(date)) {
+        struct lunar_date tomorrow;
+        if (lunar.month == 12 &&
+            lunar_from_civil(date_of_day_number(day_number(date) + 1), &tomorrow) &&
+            tomorrow.day == 1) {
             return "除夕";
         }
     }
@@ -218,14 +206,14 @@ static const char *festival(struct civil_date date, struct lunar_date lunar, con
 }
 
 static bool build_date_line(struct civil_date date, struct date_line *out) {
-    // the lunar date comes from the table, so a year outside it has no line
+    /* find the lunar date */
     struct lunar_date lunar;
     if (!lunar_from_civil(date, &lunar)) {
         log_error("date: no lunar date for %04d-%02d-%02d", date.year, date.month, date.day);
         return false;
     }
 
-    // a festival fills the pill; otherwise a Polish holiday or a solar term goes in front
+    /* a festival fills the pill, else a Polish holiday or a solar term goes in front */
     const char *holiday = polish_holiday(date);
     const char *term = solar_term_on(date);
     const char *pill = festival(date, lunar, term);
@@ -235,7 +223,7 @@ static bool build_date_line(struct civil_date date, struct date_line *out) {
     }
     *out = (struct date_line){.pill = pill, .prefix = prefix, .rest_day = holiday != nullptr};
 
-    // a plain day says "农历" itself; with a pill or prefix the text is just the lunar date
+    /* a plain day says "农历" itself; with a pill or prefix it is just the lunar date */
     int length =
             snprintf(out->lunar, sizeof out->lunar, "%s%s%s%s",
                      pill == nullptr && prefix == nullptr ? "农历" : "", lunar.leap ? "闰" : "",
@@ -250,10 +238,15 @@ static bool build_date_line(struct civil_date date, struct date_line *out) {
 
 struct date date_for(time_t now) {
     struct civil_date today = time_warsaw_date(now);
+    int days_since_monday = (day_number(today) + THURSDAY_INDEX_FROM_MONDAY) %
+                            DAYS_PER_WEEK; // 1970-01-01 was a Thursday
+    if (days_since_monday < 0) {
+        days_since_monday += DAYS_PER_WEEK;
+    }
     struct date date = {
             .today = today,
             .month_name = MONTH_NAMES[today.month - 1],
-            .weekday_name = WEEKDAY_NAMES[weekday_index_from_monday(today)],
+            .weekday_name = WEEKDAY_NAMES[days_since_monday],
             .counter_days = days_between(COUNTER_DAY_ZERO, today),
     };
     date.ok = build_date_line(today, &date.line);
