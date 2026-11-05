@@ -118,6 +118,15 @@ struct http_response http_get(const char *url, const char *bearer) {
     return request(url, bearer, nullptr, 0);
 }
 
+struct http_response http_get_ok(const char *url) {
+    struct http_response response = http_get(url, nullptr);
+    if (response.ok && response.status != HTTP_OK) {
+        log_error("%s answered %ld", url, response.status);
+        http_response_free(&response);
+    }
+    return response;
+}
+
 struct http_response http_put_multipart(const char *url, const char *bearer,
                                         const struct http_part *parts, size_t count) {
     return request(url, bearer, parts, count);

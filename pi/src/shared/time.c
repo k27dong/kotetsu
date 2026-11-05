@@ -12,8 +12,6 @@
 #define TIMESYNC_DIRECTORY    "/run/systemd/timesync"
 #define TIMESYNC_SYNCHRONIZED TIMESYNC_DIRECTORY "/synchronized"
 
-static constexpr int MINUTES_PER_HOUR = 60;
-
 static struct tm warsaw_time(time_t now) {
     struct tm local;
     if (localtime_r(&now, &local) == nullptr) {
@@ -31,6 +29,10 @@ struct civil_date time_warsaw_date(time_t now) {
 int time_warsaw_minute_of_day(time_t now) {
     const struct tm local = warsaw_time(now);
     return local.tm_hour * MINUTES_PER_HOUR + local.tm_min;
+}
+
+bool time_same_date(struct civil_date a, struct civil_date b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
 static bool read_digits(const char **cursor, int count, int *out) {
