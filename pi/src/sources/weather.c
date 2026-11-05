@@ -22,9 +22,10 @@
 #define WEATHER_BASE_VARIABLE "KOTETSU_WEATHER_BASE"
 
 #define OPEN_METEO_ORIGIN "https://api.open-meteo.com"
-#define FORECAST_PATH                                                                  \
-    "/v1/forecast?latitude=" WARSAW_LATITUDE "&longitude=" WARSAW_LONGITUDE            \
-    "&current=temperature_2m&daily=weather_code,temperature_2m_max,temperature_2m_min" \
+#define FORECAST_PATH                                                       \
+    "/v1/forecast?latitude=" WARSAW_LATITUDE "&longitude=" WARSAW_LONGITUDE \
+    "&current=temperature_2m,weather_code&hourly=weather_code"              \
+    "&daily=temperature_2m_max,temperature_2m_min"                          \
     "&timezone=Europe%2FWarsaw&timeformat=unixtime&forecast_days=1"
 #define AIR_QUALITY_ORIGIN "https://air-quality-api.open-meteo.com"
 #define AIR_QUALITY_PATH                                                       \
@@ -44,6 +45,9 @@ static constexpr int POOR_AIR_EAQI = 60;
 static constexpr int EAQI_UNKNOWN = -1;
 static constexpr double IMPLAUSIBLE_DEGREES = 100.0;
 static constexpr int THUNDERSTORM_CODE = 95;
+static constexpr int FIRST_PRECIPITATION_CODE = 51;
+static constexpr int PRECIPITATION_AHEAD_UNTIL_MINUTE = 20 * 60; // later rain shows once it starts
+static constexpr int64_t SECONDS_PER_HOUR = 3600;
 
 struct met_symbol {
     const char *name;
@@ -144,21 +148,39 @@ static bool read_code(const cJSON *item, int *out) {
     return true;
 }
 
+static bool shows_ahead(int code, int64_t hour_s, int64_t now_s) {
+    return code >= FIRST_PRECIPITATION_CODE && hour_s + SECONDS_PER_HOUR > now_s &&
+           calendar_days_between(clock_warsaw_date(now_s), clock_warsaw_date(hour_s)) == 0 &&
+           clock_warsaw_minute_of_day(hour_s) < PRECIPITATION_AHEAD_UNTIL_MINUTE;
+}
+
 bool weather_parse_open_meteo(const char *json, int64_t fetched_s, struct weather_report *out) {
     cJSON *root = cJSON_Parse(json);
+    const cJSON *current = json_member(root, "current");
+    const cJSON *hour_times = json_member(json_member(root, "hourly"), "time");
+    const cJSON *hour_codes = json_member(json_member(root, "hourly"), "weather_code");
     const cJSON *daily = json_member(root, "daily");
     struct weather_report report = {.fetched_s = fetched_s};
-    const bool parsed =
-            read_degrees(json_member(json_member(root, "current"), "temperature_2m"),
-                         &report.now_c) &&
-            read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_min"), 0),
-                         &report.low_c) &&
-            read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_max"), 0),
-                         &report.high_c) &&
-            read_code(cJSON_GetArrayItem(json_member(daily, "weather_code"), 0), &report.code);
+    bool parsed = read_degrees(json_member(current, "temperature_2m"), &report.now_c) &&
+                  read_code(json_member(current, "weather_code"), &report.code) &&
+                  read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_min"), 0),
+                               &report.low_c) &&
+                  read_degrees(cJSON_GetArrayItem(json_member(daily, "temperature_2m_max"), 0),
+                               &report.high_c) &&
+                  cJSON_IsArray(hour_times) && cJSON_IsArray(hour_codes) &&
+                  cJSON_GetArraySize(hour_times) == cJSON_GetArraySize(hour_codes);
+    for (int i = 0; parsed && i < cJSON_GetArraySize(hour_times); i++) {
+        int64_t hour_s = 0;
+        int code = 0;
+        parsed = json_whole_number(cJSON_GetArrayItem(hour_times, i), &hour_s) &&
+                 read_code(cJSON_GetArrayItem(hour_codes, i), &code);
+        if (parsed && code > report.code && shows_ahead(code, hour_s, fetched_s)) {
+            report.code = code;
+        }
+    }
     cJSON_Delete(root);
     if (!parsed) {
-        log_error("Open-Meteo's forecast lacks today's temperatures or weather code");
+        log_error("Open-Meteo's forecast lacks today's temperatures or weather codes");
         return false;
     }
     *out = report;
@@ -181,6 +203,16 @@ static bool met_code(const char *symbol, int *out) {
     return false;
 }
 
+static int met_entry_code(const cJSON *data) {
+    const char *symbol = cJSON_GetStringValue(
+            json_member(json_member(json_member(data, "next_1_hours"), "summary"), "symbol_code"));
+    int code = -1;
+    if (symbol != nullptr && !met_code(symbol, &code)) {
+        log_warning("MET Norway's symbol %s has no weather code", symbol);
+    }
+    return code;
+}
+
 bool weather_parse_met_norway(const char *json, struct civil_date today, int64_t fetched_s,
                               struct weather_report *out) {
     cJSON *root = cJSON_Parse(json);
@@ -189,6 +221,7 @@ bool weather_parse_met_norway(const char *json, struct civil_date today, int64_t
     bool parsed = cJSON_IsArray(series);
     bool have_now = false;
     bool have_today = false;
+    int ahead_code = -1;
     const cJSON *entry;
     cJSON_ArrayForEach(entry, series) {
         const cJSON *data = json_member(entry, "data");
@@ -202,28 +235,27 @@ bool weather_parse_met_norway(const char *json, struct civil_date today, int64_t
             parsed = false;
             break;
         }
-        if (!have_now || entry_s <= fetched_s) {
+        const bool is_now = !have_now || entry_s <= fetched_s;
+        const bool is_today = calendar_days_between(today, clock_warsaw_date(entry_s)) == 0;
+        if (!is_now && !is_today) {
+            continue;
+        }
+        const int code = met_entry_code(data);
+        if (is_now) {
             report.now_c = degrees;
+            report.code = code;
             have_now = true;
         }
-        if (calendar_days_between(today, clock_warsaw_date(entry_s)) != 0) {
-            continue;
-        }
-        report.low_c = !have_today || degrees < report.low_c ? degrees : report.low_c;
-        report.high_c = !have_today || degrees > report.high_c ? degrees : report.high_c;
-        have_today = true;
-        const char *symbol = cJSON_GetStringValue(json_member(
-                json_member(json_member(data, "next_1_hours"), "summary"), "symbol_code"));
-        if (symbol == nullptr) {
-            continue;
-        }
-        int code = 0;
-        if (met_code(symbol, &code)) {
-            report.code = code > report.code ? code : report.code; // higher codes are worse weather
-        } else {
-            log_warning("MET Norway's symbol %s has no weather code", symbol);
+        if (is_today) {
+            report.low_c = !have_today || degrees < report.low_c ? degrees : report.low_c;
+            report.high_c = !have_today || degrees > report.high_c ? degrees : report.high_c;
+            have_today = true;
+            if (code > ahead_code && shows_ahead(code, entry_s, fetched_s)) {
+                ahead_code = code;
+            }
         }
     }
+    report.code = ahead_code > report.code ? ahead_code : report.code; // higher codes are worse
     cJSON_Delete(root);
     if (!parsed) {
         log_error("MET Norway's forecast doesn't parse");
