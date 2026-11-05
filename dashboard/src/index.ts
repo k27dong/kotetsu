@@ -16,7 +16,7 @@ import {
 } from "./api_dash";
 import { piNow, piScreen } from "./api_pi";
 import type { ErrorResponse, LoginRequest } from "./api_types";
-import { checkPassword, hasSession, isPi, requestTime, sessionCookie } from "./auth";
+import { checkPassword, hasSession, isPi, sessionCookie } from "./auth";
 import type { Env } from "./env";
 import { InputError } from "./validate";
 
@@ -76,29 +76,30 @@ const respond = async (route: Route, context: RouteContext): Promise<Response> =
   }
 };
 
+export const handle = async (request: Request, env: Env, now: Date): Promise<Response> => {
+  const url = new URL(request.url);
+  if (request.headers.get("X-Forwarded-Proto") === "http") {
+    url.protocol = "https:"; // the session cookie is Secure, so a browser on http drops it
+    return Response.redirect(url.toString(), 308);
+  }
+  if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+
+  if (request.method === "POST" && url.pathname === "/api/login") {
+    return login(request, env, now);
+  }
+
+  const allowed = url.pathname.startsWith("/api/pi/")
+    ? isPi(request, env)
+    : await hasSession(request, env, now);
+  if (!allowed) return new Response(null, { status: 401 });
+
+  for (const route of matchers) {
+    const match = route.method === request.method && route.pattern.exec(request.url);
+    if (match) return respond(route, { request, env, now, params: match.pathname.groups });
+  }
+  return new Response(null, { status: 404 });
+};
+
 export default {
-  fetch: async (request, env): Promise<Response> => {
-    const url = new URL(request.url);
-    if (request.headers.get("X-Forwarded-Proto") === "http") {
-      url.protocol = "https:"; // the session cookie is Secure, so a browser on http drops it
-      return Response.redirect(url.toString(), 308);
-    }
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
-
-    const now = requestTime(request, env);
-    if (request.method === "POST" && url.pathname === "/api/login") {
-      return login(request, env, now);
-    }
-
-    const allowed = url.pathname.startsWith("/api/pi/")
-      ? isPi(request, env)
-      : await hasSession(request, env, now);
-    if (!allowed) return new Response(null, { status: 401 });
-
-    for (const route of matchers) {
-      const match = route.method === request.method && route.pattern.exec(request.url);
-      if (match) return respond(route, { request, env, now, params: match.pathname.groups });
-    }
-    return new Response(null, { status: 404 });
-  },
+  fetch: (request, env) => handle(request, env, new Date()),
 } satisfies ExportedHandler<Env>;
