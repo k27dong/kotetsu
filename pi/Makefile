@@ -43,7 +43,7 @@ PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 SYSTEM := $(shell uname -s)
 ifeq ($(SYSTEM),Linux)
 SRCS += src/panel/board_linux.c src/panel/display_epd.c
-PACKAGES += libgpiod
+PACKAGES += libgpiod libnl-genl-3.0
 else ifeq ($(SYSTEM),Darwin)
 SRCS += src/panel/display_png.c
 SDKROOT ?= $(shell xcrun --show-sdk-path)
