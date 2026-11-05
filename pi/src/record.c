@@ -252,10 +252,23 @@ bool record_restore(const char *path, struct wall *wall, struct weather_state *w
     return true;
 }
 
+static void keep_valid_utf8(char *text) {
+    const char *end = nullptr;
+    if (!g_utf8_validate(text, -1, &end)) {
+        text[end - text] = '\0';
+    }
+}
+
 void record_error(struct record_state *state, const char *text) {
     log_error("%s", text);
     snprintf(state->last_error, sizeof state->last_error, "%s", text);
+    keep_valid_utf8(state->last_error); // the cut can split a character
 }
+
+struct wifi_signal {
+    bool has;
+    double quality;
+};
 
 #ifdef __linux__
 #define NL80211_FAMILY "nl80211"
@@ -339,12 +352,12 @@ static bool dump(struct nl_sock *socket, int family, const struct dump_request *
     return true;
 }
 
-static bool read_wifi_signal(double *quality) {
+static struct wifi_signal read_wifi_signal(void) {
     /* reach nl80211 */
     struct nl_sock *socket = nl_socket_alloc();
     if (socket == nullptr) {
         log_error("can't allocate a netlink socket");
-        return false;
+        return (struct wifi_signal){};
     }
     const int connected = genl_connect(socket);
     const int family = connected < 0 ? connected : genl_ctrl_resolve(socket, NL80211_FAMILY);
@@ -371,26 +384,26 @@ static bool read_wifi_signal(double *quality) {
         read = dump(socket, family, &stations) && signal.found;
     }
     nl_socket_free(socket);
+    if (!read) {
+        return (struct wifi_signal){};
+    }
 
     /* put the signal on the kernel's 0–70 scale */
-    if (read) {
-        const int dbm = signal.dbm < WEAKEST_DBM     ? WEAKEST_DBM
-                        : signal.dbm > STRONGEST_DBM ? STRONGEST_DBM
-                                                     : signal.dbm;
-        *quality = dbm - WEAKEST_DBM;
-    }
-    return read;
+    const int dbm = signal.dbm < WEAKEST_DBM     ? WEAKEST_DBM
+                    : signal.dbm > STRONGEST_DBM ? STRONGEST_DBM
+                                                 : signal.dbm;
+    return (struct wifi_signal){.has = true, .quality = dbm - WEAKEST_DBM};
 }
 #else
-static bool read_wifi_signal([[maybe_unused]] double *quality) {
-    return false; // only Linux has nl80211
+static struct wifi_signal read_wifi_signal(void) {
+    return (struct wifi_signal){}; // only Linux has nl80211
 }
 #endif
 
 struct readings record_read_device(void) {
     /* the Wi-Fi link's quality, when there is a link */
-    struct readings readings = {};
-    readings.has_wifi_signal = read_wifi_signal(&readings.wifi_signal);
+    const struct wifi_signal wifi = read_wifi_signal();
+    struct readings readings = {.has_wifi_signal = wifi.has, .wifi_signal = wifi.quality};
 
     /* the SoC's temperature, which the kernel gives in millidegrees */
     char text[TEMPERATURE_TEXT_BYTES];
@@ -465,10 +478,12 @@ bool record_report_json(const struct report *report, const struct readings *read
     if (report->last_error == nullptr) {
         cJSON_AddNullToObject(root, "lastError");
     } else {
-        const cJSON *error = cJSON_AddStringToObject(root, "lastError", report->last_error);
-        if (error != nullptr &&
-            g_utf8_strlen(error->valuestring, -1) > REPORT_ERROR_MAX_CHARACTERS) {
-            *g_utf8_offset_to_pointer(error->valuestring, REPORT_ERROR_MAX_CHARACTERS) = '\0';
+        cJSON *error = cJSON_AddStringToObject(root, "lastError", report->last_error);
+        if (error != nullptr) {
+            keep_valid_utf8(error->valuestring); // counting a broken character runs past the end
+            if (g_utf8_strlen(error->valuestring, -1) > REPORT_ERROR_MAX_CHARACTERS) {
+                *g_utf8_offset_to_pointer(error->valuestring, REPORT_ERROR_MAX_CHARACTERS) = '\0';
+            }
         }
     }
 
