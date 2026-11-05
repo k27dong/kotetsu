@@ -44,4 +44,5 @@ CheckOptions:
     .*/freetype/.*;
     .*/harfbuzz/.*;
     .*/curl/.*;
+    .*\.sdk/usr/include/sys/signal\.h;
     .*\.sdk/usr/include/(.*/)?_.*

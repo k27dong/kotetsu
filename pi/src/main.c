@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -145,8 +146,12 @@ static char *read_pi_key(void) {
 }
 
 static bool stop_on(int signal_number) {
-    if (signal(signal_number, request_stop) == SIG_ERR) {
-        log_error("can't handle signal %d", signal_number);
+    struct sigaction action = {
+            .sa_handler = request_stop,
+            .sa_flags = SA_RESTART, // a refresh or save under way finishes; the sleep still wakes
+    };
+    if (sigemptyset(&action.sa_mask) != 0 || sigaction(signal_number, &action, nullptr) != 0) {
+        log_error("can't handle signal %d: %s", signal_number, g_strerror(errno));
         return false;
     }
     return true;
