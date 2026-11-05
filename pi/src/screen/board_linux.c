@@ -110,6 +110,8 @@ bool board_run(struct board *board, const struct epd_steps *steps) {
     for (size_t i = 0; i < steps->count; i++) {
         const struct epd_step *step = &steps->steps[i];
         bool ok = false;
+
+        /* one step: a reset pulse, a command byte with DC low, data with DC high, or a wait */
         switch (step->kind) {
         case EPD_RESET:
             ok = pulse_reset(board);
@@ -129,6 +131,8 @@ bool board_run(struct board *board, const struct epd_steps *steps) {
             ok = true;
             break;
         }
+
+        /* the first failure ends the run, so nothing more reaches a panel in an unknown state */
         if (!ok) {
             return false;
         }
@@ -179,6 +183,7 @@ static struct gpiod_chip *open_header_chip(void) {
 }
 
 static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
+    /* the three configurations a libgpiod request is built from */
     struct gpiod_line_settings *settings = gpiod_line_settings_new();
     struct gpiod_line_config *line_config = gpiod_line_config_new();
     struct gpiod_request_config *request_config = gpiod_request_config_new();
@@ -200,13 +205,17 @@ static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
         log_error("can't configure the panel's GPIO lines: %s", strerror(errno));
         goto out;
     }
+
+    /* one request for all four lines, in this program's name */
     gpiod_request_config_set_consumer(request_config, "kotetsu");
     lines = gpiod_chip_request_lines(chip, request_config, line_config);
     if (lines == nullptr) {
         log_error("can't request GPIO %u, %u, %u and %u: %s", RST_GPIO, PWR_GPIO, DC_GPIO,
                   BUSY_GPIO, strerror(errno));
     }
+
 out:
+    /* the configurations are done with, whether or not the request was made */
     gpiod_request_config_free(request_config);
     gpiod_line_config_free(line_config);
     gpiod_line_settings_free(settings);

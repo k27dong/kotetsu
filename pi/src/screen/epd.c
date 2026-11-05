@@ -39,9 +39,10 @@ static const uint8_t UPDATE_CONTROL_FULL[] = {0x40, 0x00};
 static const uint8_t UPDATE_CONTROL_PARTIAL[] = {0x00, 0x00};
 static const uint8_t UPDATE_SEQUENCE_FULL[] = {0xF7};
 static const uint8_t UPDATE_SEQUENCE_PARTIAL[] = {0xFF};
-static const uint8_t SLEEP_MODE_1[] = {0x03};
+static const uint8_t SLEEP_MODE_2_RAM_LOST[] = {0x03}; // so both frames go out on every refresh
 
-static constexpr int SETTLE_MS = 10;
+static constexpr int POWER_ON_SETTLE_MS = 10;
+static constexpr int BUSY_LAG_MS = 10;
 
 static void add(struct epd_steps *steps, struct epd_step step) {
     if (steps->count == EPD_STEPS_MAX) {
@@ -59,7 +60,7 @@ static void add_command(struct epd_steps *steps, uint8_t code, const uint8_t *da
 }
 
 static void add_reset(struct epd_steps *steps) {
-    add(steps, (struct epd_step){.kind = EPD_PAUSE, .milliseconds = SETTLE_MS});
+    add(steps, (struct epd_step){.kind = EPD_PAUSE, .milliseconds = POWER_ON_SETTLE_MS});
     add(steps, (struct epd_step){.kind = EPD_RESET});
     add(steps, (struct epd_step){.kind = EPD_WAIT_IDLE});
 }
@@ -100,7 +101,7 @@ struct epd_steps epd_refresh_steps(const struct frame *on_glass, const struct fr
                 full ? UPDATE_SEQUENCE_FULL : UPDATE_SEQUENCE_PARTIAL, sizeof UPDATE_SEQUENCE_FULL);
     add_command(&steps, MASTER_ACTIVATION, nullptr, 0);
     add(&steps, (struct epd_step){.kind = EPD_WAIT_IDLE});
-    add_command(&steps, DEEP_SLEEP, SLEEP_MODE_1, sizeof SLEEP_MODE_1);
+    add_command(&steps, DEEP_SLEEP, SLEEP_MODE_2_RAM_LOST, sizeof SLEEP_MODE_2_RAM_LOST);
     return steps;
 }
 
@@ -111,7 +112,7 @@ struct epd_steps epd_clear_steps(const struct frame *white) {
 struct epd_steps epd_sleep_steps(void) {
     struct epd_steps steps = {};
     add_reset(&steps);
-    add_command(&steps, DEEP_SLEEP, SLEEP_MODE_1, sizeof SLEEP_MODE_1);
-    add(&steps, (struct epd_step){.kind = EPD_PAUSE, .milliseconds = SETTLE_MS}); // BUSY can lag
+    add_command(&steps, DEEP_SLEEP, SLEEP_MODE_2_RAM_LOST, sizeof SLEEP_MODE_2_RAM_LOST);
+    add(&steps, (struct epd_step){.kind = EPD_PAUSE, .milliseconds = BUSY_LAG_MS});
     return steps;
 }

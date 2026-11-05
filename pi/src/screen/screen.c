@@ -30,12 +30,15 @@ static bool same_date(struct civil_date a, struct civil_date b) {
 }
 
 static struct decision refresh_for(const struct wall *wall, const struct wanted *wanted) {
+    /* an unknown glass or the dashboard's request is full, whatever the frame */
     if (!wall->known) {
         return (struct decision){REFRESH_FULL, REASON_UNKNOWN_GLASS};
     }
     if (wanted->full_refresh != 0 && wanted->full_refresh != wall->full_refresh_done) {
         return (struct decision){REFRESH_FULL, REASON_FULL_REFRESH_ASKED};
     }
+
+    /* a page turn, by phrase or by date, is full unless the picture is the same */
     const bool same_frame = frame_equal(&wall->frame, wanted->frame);
     const char *text = wanted->phrase_text != nullptr ? wanted->phrase_text : "";
     if (wanted->phrase_id != wall->phrase_id || strcmp(text, wall->phrase_text) != 0) {
@@ -46,10 +49,14 @@ static struct decision refresh_for(const struct wall *wall, const struct wanted 
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_DAY};
     }
+
+    /* a clean-up is full after a partial, else there is nothing to clean */
     if (wall->cleanup_due) {
         return wall->partials_since_full > 0 ? (struct decision){REFRESH_FULL, REASON_CLEANUP}
                                              : (struct decision){REFRESH_NONE, REASON_CLEANUP};
     }
+
+    /* a changed picture is partial, or full after four partials */
     if (same_frame) {
         return (struct decision){REFRESH_NONE, REASON_SAME_FRAME};
     }
@@ -168,9 +175,10 @@ const char *screen_reason_text(enum refresh_reason reason) {
 }
 
 struct screen *screen_open(void) {
+    /* the GPIO lines and SPI, which board_open explains when it can't open them */
     struct board *board = board_open();
     if (board == nullptr) {
-        log_info("no panel: nothing to drive on this machine");
+        log_info("no panel: the board can't be opened");
         return nullptr;
     }
 
@@ -183,6 +191,7 @@ struct screen *screen_open(void) {
         return nullptr;
     }
 
+    /* the screen owns the board from here on */
     struct screen *screen = malloc(sizeof *screen);
     if (screen == nullptr) {
         log_error("out of memory opening the screen");
