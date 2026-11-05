@@ -1,5 +1,4 @@
 import type { Env } from "./env";
-import { isIsoTimeWithOffset } from "./time";
 
 const SESSION_COOKIE = "kotetsu_session";
 const SESSION_SECONDS = 365 * 24 * 60 * 60;
@@ -61,13 +60,4 @@ export const hasSession = async (request: Request, env: Env, now: Date): Promise
 export const isPi = (request: Request, env: Env): boolean => {
   const expected = `Bearer ${secret(env, "PI_KEY")}`;
   return matchesSecret(request.headers.get("Authorization") ?? "", expected);
-};
-
-export const requestTime = (request: Request, env: Env): Date => {
-  const override = request.headers.get("X-Kotetsu-Now");
-  if (env.ALLOW_TIME_OVERRIDE !== "1" || override === null) return new Date();
-  if (!isIsoTimeWithOffset(override)) {
-    throw new Error(`X-Kotetsu-Now needs an ISO 8601 date, time and offset, not "${override}"`);
-  }
-  return new Date(override);
 };
