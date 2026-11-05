@@ -1,10 +1,12 @@
 #include "shared/file.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 static constexpr size_t PATH_BYTES = 4'096; // the longest path Linux takes
@@ -25,6 +27,33 @@ bool file_read(const char *path, void *out, size_t size, size_t *length) {
     }
     *length = count;
     return true;
+}
+
+static bool sync_directory_of(const char *path) {
+    /* find the directory: "." for a bare name, "/" for a file at the root */
+    char directory[PATH_BYTES] = ".";
+    const char *slash = strrchr(path, '/');
+    if (slash != nullptr) {
+        const size_t length = slash == path ? 1 : (size_t)(slash - path);
+        if (length >= sizeof directory) {
+            errno = ENAMETOOLONG;
+            return false;
+        }
+        memcpy(directory, path, length);
+        directory[length] = '\0';
+    }
+
+    /* flush its entries to the disk */
+    DIR *opened = opendir(directory);
+    if (opened == nullptr) {
+        return false;
+    }
+    const int handle = dirfd(opened);
+    const bool synced = handle >= 0 && fsync(handle) == 0;
+    const int reason = errno;
+    closedir(opened);
+    errno = reason;
+    return synced;
 }
 
 bool file_write_atomic(const char *path, const void *data, size_t length) {
@@ -55,11 +84,13 @@ bool file_write_atomic(const char *path, const void *data, size_t length) {
     const bool closed = close(file) == 0;
 
     /* replace the target in one step, or remove the temporary file */
-    if (flushed && closed && rename(temporary, path) == 0) {
-        return true;
+    if (!flushed || !closed || rename(temporary, path) != 0) {
+        const int reason = flushed ? errno : write_error;
+        unlink(temporary);
+        errno = reason;
+        return false;
     }
-    const int reason = flushed ? errno : write_error;
-    unlink(temporary);
-    errno = reason;
-    return false;
+
+    /* sync the directory too, or a power cut can bring the old file back */
+    return sync_directory_of(path);
 }

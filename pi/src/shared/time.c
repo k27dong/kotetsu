@@ -56,6 +56,7 @@ static bool read_char(const char **cursor, char expected) {
 }
 
 static bool read_offset(const char **cursor, int *offset_seconds) {
+    /* read Z for UTC, or the sign of an offset */
     if (read_char(cursor, 'Z')) {
         *offset_seconds = 0;
         return true;
@@ -68,6 +69,8 @@ static bool read_offset(const char **cursor, int *offset_seconds) {
     } else {
         return false;
     }
+
+    /* read the hours and minutes after the sign */
     int hours = 0;
     int minutes = 0;
     if (!read_digits(cursor, 2, &hours) || !read_char(cursor, ':') ||
