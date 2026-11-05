@@ -52,5 +52,5 @@ struct phrase {
 
 // keeps the last good answer on failure
 struct phrase phrase_fetch(struct phrase_state *state, const struct config *config, time_t now);
-enum phrase_status phrase_parse(const char *json, struct phrase_answer *out);
+[[nodiscard]] enum phrase_status phrase_parse(const char *json, struct phrase_answer *out);
 const char *phrase_problem(enum phrase_status status); // nullptr for PHRASE_OK

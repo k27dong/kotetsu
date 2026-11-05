@@ -81,10 +81,13 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
     if (cJSON_IsObject(greeting)) {
         const char *icon = cJSON_GetStringValue(json_member(greeting, "icon"));
         bool known = false;
-        for (size_t i = 0; i < sizeof GREETING_ICON_NAMES / sizeof *GREETING_ICON_NAMES; i++) {
-            if (icon != nullptr && strcmp(icon, GREETING_ICON_NAMES[i]) == 0) {
-                answer->greeting_icon = (enum greeting_icon)i;
-                known = true;
+        if (icon != nullptr) {
+            for (size_t i = 0; i < sizeof GREETING_ICON_NAMES / sizeof *GREETING_ICON_NAMES; i++) {
+                if (strcmp(icon, GREETING_ICON_NAMES[i]) == 0) {
+                    answer->greeting_icon = (enum greeting_icon)i;
+                    known = true;
+                    break;
+                }
             }
         }
         if (!known) {
@@ -145,7 +148,7 @@ struct phrase phrase_fetch(struct phrase_state *state, const struct config *conf
     /* read the answer, or log what the dashboard said and name the problem */
     struct phrase_answer answer = {};
     enum phrase_status status = PHRASE_UNREACHABLE;
-    if (response.ok && response.status == 200) {
+    if (response.ok && response.status == HTTP_OK) {
         status = phrase_parse(response.body, &answer);
     } else if (response.ok) {
         cJSON *root = cJSON_Parse(response.body);
@@ -174,13 +177,11 @@ struct phrase phrase_fetch(struct phrase_state *state, const struct config *conf
     }
 
     /* hand back the last good answer, and whether it came today */
-    const struct civil_date answered_on = state->answered_on;
     return (struct phrase){
             .status = status,
             .have_answer = state->have_answer,
             .answer = state->answer,
-            .answered_today = state->have_answer && answered_on.year == today.year &&
-                              answered_on.month == today.month && answered_on.day == today.day,
+            .answered_today = state->have_answer && time_same_date(state->answered_on, today),
     };
 }
 
