@@ -1,6 +1,7 @@
 #include "draw/typeset.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <cairo.h>
@@ -27,8 +28,8 @@ static constexpr double HANGING_SHIFT_EM = 0.25;
 #define GAP_PLACEHOLDER  "⁠"
 
 static constexpr gunichar GAP_PLACEHOLDER_CHAR = 0x2060;
-static const gunichar HANGING_PUNCTUATION[] = {U'。', U'，', U'！', U'？'};
-static const gunichar BREAK_PUNCTUATION[] = {U'。', U'，', U'！', U'？', U'、', U'；', U'：'};
+static const gunichar HANGING_PUNCTUATION[] = {U'。', U'，', U'！', U'？', 0};
+static const gunichar BREAK_PUNCTUATION[] = {U'。', U'，', U'！', U'？', U'、', U'；', U'：', 0};
 
 struct byte_range {
     size_t start;
@@ -36,8 +37,9 @@ struct byte_range {
 };
 
 struct gapped_text {
-    GString *text; // the text with a placeholder wherever a digit meets a Han character
-    size_t *gaps;  // byte offsets of the placeholders in text
+    char *text; // the text with a placeholder wherever a digit meets a Han character
+    size_t length;
+    size_t *gaps; // byte offsets of the placeholders in text
     size_t gap_count;
 };
 
@@ -58,6 +60,16 @@ PangoContext *typeset_context(PangoFontMap *fonts, cairo_t *cr) {
     return context;
 }
 
+// malloc when memory is nullptr; a phrase is at most 2 KB, so running out ends the program
+static void *resized(void *memory, size_t bytes) {
+    void *resized = realloc(memory, bytes);
+    if (resized == nullptr) {
+        log_error("out of memory typesetting %zu bytes", bytes);
+        abort();
+    }
+    return resized;
+}
+
 static bool is_han(gunichar character) {
     return g_unichar_get_script(character) == G_UNICODE_SCRIPT_HAN;
 }
@@ -71,7 +83,7 @@ static struct gapped_text with_gap_placeholders(const char *text) {
     const size_t length = (size_t)(end - text);
 
     /* the byte offsets where a digit follows a Han character or the other way round */
-    struct gapped_text gapped = {.gaps = g_new(size_t, length + 1)};
+    struct gapped_text gapped = {.gaps = resized(nullptr, (length + 1) * sizeof(size_t))};
     gunichar previous = 0; // neither a digit nor Han
     for (const char *cursor = text; cursor < end; cursor = g_utf8_next_char(cursor)) {
         const gunichar current = g_utf8_get_char(cursor);
@@ -83,22 +95,39 @@ static struct gapped_text with_gap_placeholders(const char *text) {
     }
 
     /* a copy with a placeholder at each of them, and the gaps moved to the copy's offsets */
-    gapped.text = g_string_sized_new(length + gapped.gap_count * strlen(GAP_PLACEHOLDER));
+    const size_t placeholder_bytes = strlen(GAP_PLACEHOLDER);
+    gapped.text = resized(nullptr, length + gapped.gap_count * placeholder_bytes + 1);
     size_t copied = 0;
     for (size_t i = 0; i < gapped.gap_count; i++) {
         const size_t gap = gapped.gaps[i];
-        g_string_append_len(gapped.text, text + copied, (gssize)(gap - copied));
+        memcpy(gapped.text + gapped.length, text + copied, gap - copied);
+        gapped.length += gap - copied;
         copied = gap;
-        gapped.gaps[i] = gapped.text->len;
-        g_string_append(gapped.text, GAP_PLACEHOLDER);
+        gapped.gaps[i] = gapped.length;
+        memcpy(gapped.text + gapped.length, GAP_PLACEHOLDER, placeholder_bytes);
+        gapped.length += placeholder_bytes;
     }
-    g_string_append_len(gapped.text, text + copied, (gssize)(length - copied));
+    memcpy(gapped.text + gapped.length, text + copied, length - copied);
+    gapped.length += length - copied;
+    gapped.text[gapped.length] = '\0';
     return gapped;
 }
 
 static void free_gapped_text(struct gapped_text *gapped) {
-    g_string_free(gapped->text, true);
-    g_free(gapped->gaps);
+    free(gapped->text);
+    free(gapped->gaps);
+}
+
+static void splice(struct gapped_text *gapped, struct byte_range old, const char *with,
+                   size_t with_bytes) {
+    const size_t old_bytes = old.end - old.start;
+    if (with_bytes > old_bytes) {
+        gapped->text = resized(gapped->text, gapped->length - old_bytes + with_bytes + 1);
+    }
+    memmove(gapped->text + old.start + with_bytes, gapped->text + old.end,
+            gapped->length - old.end + 1);
+    memcpy(gapped->text + old.start, with, with_bytes);
+    gapped->length = gapped->length - old_bytes + with_bytes;
 }
 
 static size_t digit_runs(const char *text, struct byte_range *out) {
@@ -136,9 +165,9 @@ static PangoAttrList *attributes_for(const struct gapped_text *gapped, double si
     }
 
     /* every run of digits in Inter semibold; a run needs a byte and a separator, so half fit */
-    const size_t max_runs = gapped->text->len / 2 + 1;
-    struct byte_range *runs = g_new(struct byte_range, max_runs);
-    const size_t run_count = digit_runs(gapped->text->str, runs);
+    const size_t max_runs = gapped->length / 2 + 1;
+    struct byte_range *runs = resized(nullptr, max_runs * sizeof *runs);
+    const size_t run_count = digit_runs(gapped->text, runs);
     for (size_t i = 0; i < run_count; i++) {
         PangoAttribute *family = pango_attr_family_new(FONT_FAMILY_DIGITS);
         family->start_index = (guint)runs[i].start;
@@ -149,7 +178,7 @@ static PangoAttrList *attributes_for(const struct gapped_text *gapped, double si
         weight->end_index = (guint)runs[i].end;
         pango_attr_list_insert(attributes, weight);
     }
-    g_free(runs);
+    free(runs);
     return attributes;
 }
 
@@ -167,7 +196,7 @@ static void set_font(PangoLayout *layout, const char *family, double size_px) {
 PangoLayout *typeset_line(PangoContext *context, struct text_style style, const char *text) {
     struct gapped_text gapped = with_gap_placeholders(text);
     PangoLayout *layout = pango_layout_new(context);
-    pango_layout_set_text(layout, gapped.text->str, (int)gapped.text->len);
+    pango_layout_set_text(layout, gapped.text, (int)gapped.length);
     set_font(layout, style.family, style.size_px);
     PangoAttrList *attributes =
             attributes_for(&gapped, style.size_px,
@@ -201,9 +230,9 @@ static bool block_fits(PangoLayout *layout, int size_px) {
     return fits;
 }
 
-static bool is_one_of(gunichar character, const gunichar *set, size_t count) {
-    for (size_t i = 0; i < count; i++) {
-        if (character == set[i]) {
+static bool is_one_of(gunichar character, const gunichar *set) {
+    for (; *set != 0; set++) {
+        if (character == *set) {
             return true;
         }
     }
@@ -219,13 +248,13 @@ static bool ends_with_hanging_punctuation(const char *text, PangoLayoutLine *lin
         if (character == GAP_PLACEHOLDER_CHAR || g_unichar_isspace(character)) {
             continue;
         }
-        return is_one_of(character, HANGING_PUNCTUATION, G_N_ELEMENTS(HANGING_PUNCTUATION));
+        return is_one_of(character, HANGING_PUNCTUATION);
     }
     return false;
 }
 
 static void set_phrase_text(PangoLayout *layout, const struct gapped_text *gapped, int size_px) {
-    pango_layout_set_text(layout, gapped->text->str, (int)gapped->text->len);
+    pango_layout_set_text(layout, gapped->text, (int)gapped->length);
     PangoAttrList *attributes = attributes_for(gapped, size_px, FEATURES, false);
     pango_layout_set_attributes(layout, attributes);
     pango_attr_list_unref(attributes);
@@ -244,18 +273,19 @@ struct cut {
     size_t whitespace_bytes;
 };
 
-// The last punctuation in the line's final quarter that isn't followed by more punctuation.
 static struct cut punctuation_cut(PangoLayout *layout, int line_index) {
+    /* the line's bytes and its width */
     PangoLayoutLine *line = pango_layout_get_line_readonly(layout, line_index);
     const char *text = pango_layout_get_text(layout);
     const char *start = text + pango_layout_line_get_start_index(line);
     const char *end = start + pango_layout_line_get_length(line);
     PangoRectangle logical;
     pango_layout_line_get_extents(line, nullptr, &logical);
+
     struct cut cut = {};
     for (const char *cursor = start; cursor < end; cursor = g_utf8_next_char(cursor)) {
-        if (!is_one_of(g_utf8_get_char(cursor), BREAK_PUNCTUATION,
-                       G_N_ELEMENTS(BREAK_PUNCTUATION))) {
+        /* a break punctuation, and where the text resumes after it and any whitespace */
+        if (!is_one_of(g_utf8_get_char(cursor), BREAK_PUNCTUATION)) {
             continue;
         }
         const char *after = g_utf8_next_char(cursor);
@@ -269,6 +299,8 @@ static struct cut punctuation_cut(PangoLayout *layout, int line_index) {
         if (g_unichar_ispunct(g_utf8_get_char(resume))) {
             continue; // a closing quote or bracket stays with its punctuation
         }
+
+        /* the last one in the line's final quarter wins */
         int trailing_x;
         pango_layout_line_index_to_x(line, (int)(cursor - text), true, &trailing_x);
         if (trailing_x * 4 >= logical.width * 3) {
@@ -292,21 +324,22 @@ static void prefer_punctuation_breaks(PangoLayout *layout, struct gapped_text *g
         }
 
         /* break after the punctuation instead, in place of the whitespace behind it */
-        char *dropped = g_strndup(gapped->text->str + cut.after_punctuation, cut.whitespace_bytes);
-        g_string_erase(gapped->text, (gssize)cut.after_punctuation, (gssize)cut.whitespace_bytes);
-        g_string_insert_c(gapped->text, (gssize)cut.after_punctuation, '\n');
-        shift_gaps(gapped, cut.after_punctuation + cut.whitespace_bytes,
-                   1 - (int)cut.whitespace_bytes);
+        const struct byte_range whitespace = {cut.after_punctuation,
+                                              cut.after_punctuation + cut.whitespace_bytes};
+        char *dropped = resized(nullptr, cut.whitespace_bytes + 1);
+        memcpy(dropped, gapped->text + whitespace.start, cut.whitespace_bytes);
+        splice(gapped, whitespace, "\n", 1);
+        shift_gaps(gapped, whitespace.end, 1 - (int)cut.whitespace_bytes);
         set_phrase_text(layout, gapped, size_px);
 
         /* undo it when the block stops fitting or gains a line */
         if (!block_fits(layout, size_px) || pango_layout_get_line_count(layout) != lines) {
-            g_string_erase(gapped->text, (gssize)cut.after_punctuation, 1);
-            g_string_insert(gapped->text, (gssize)cut.after_punctuation, dropped);
-            shift_gaps(gapped, cut.after_punctuation + 1, (int)cut.whitespace_bytes - 1);
+            splice(gapped, (struct byte_range){whitespace.start, whitespace.start + 1}, dropped,
+                   cut.whitespace_bytes);
+            shift_gaps(gapped, whitespace.start + 1, (int)cut.whitespace_bytes - 1);
             set_phrase_text(layout, gapped, size_px);
         }
-        g_free(dropped);
+        free(dropped);
     }
 }
 
@@ -354,8 +387,6 @@ struct phrase_fit typeset_phrase(PangoContext *context, cairo_t *cr, const char 
         if (block_fits(layout, size_px)) {
             prefer_punctuation_breaks(layout, &gapped, size_px);
             fit.fits = true;
-            fit.size_px = size_px;
-            fit.lines = pango_layout_get_line_count(layout);
             draw_block(cr, layout, size_px);
             break;
         }

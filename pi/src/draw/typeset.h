@@ -19,8 +19,6 @@ struct text_style {
 
 struct phrase_fit {
     bool fits;
-    int size_px;
-    int lines;
     int missing_glyphs;
 };
 

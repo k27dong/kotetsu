@@ -1,5 +1,6 @@
 #include "draw/layout.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,7 +8,7 @@
 
 #include <cairo.h>
 #include <fontconfig/fontconfig.h>
-#include <glib.h>
+#include <glib-object.h>
 #include <pango/pango.h>
 #include <pango/pangocairo.h>
 #include <pango/pangofc-fontmap.h>
@@ -17,6 +18,7 @@
 #include "draw/frame.h"
 #include "draw/icons.h"
 #include "draw/typeset.h"
+#include "phrase.h"
 #include "shared/log.h"
 #include "weather.h"
 
@@ -113,6 +115,11 @@ struct counter {
     PangoLayout *unit;
 };
 
+struct greeting {
+    enum greeting_icon icon;
+    const char *text;
+};
+
 struct drawing *draw_open(const char *font_dir) {
     /* a fontconfig of the two files alone, so nothing else on the system is ever drawn */
     FcConfig *config = FcConfigCreate();
@@ -122,13 +129,14 @@ struct drawing *draw_open(const char *font_dir) {
     }
     const char *const files[] = {FONT_FILE_CJK, FONT_FILE_DIGITS};
     bool added = true;
-    for (size_t i = 0; i < G_N_ELEMENTS(files); i++) {
-        gchar *path = g_build_filename(font_dir, files[i], nullptr);
-        if (!FcConfigAppFontAddFile(config, (const FcChar8 *)path)) {
-            log_error("can't load font %s", path);
+    for (size_t i = 0; i < sizeof files / sizeof *files; i++) {
+        char path[512];
+        const int length = snprintf(path, sizeof path, "%s/%s", font_dir, files[i]);
+        if (length < 0 || (size_t)length >= sizeof path ||
+            !FcConfigAppFontAddFile(config, (const FcChar8 *)path)) {
+            log_error("can't load font %s/%s", font_dir, files[i]);
             added = false;
         }
-        g_free(path);
     }
 
     /* a FreeType font map over it, which keeps its own reference */
@@ -185,13 +193,12 @@ static void set_ink(cairo_t *cr, enum ink ink) {
     }
 }
 
-static void fill_rounded_rect(cairo_t *cr, double left, double top, double width, double height,
-                              double radius) {
+static void fill_rounded_rect(cairo_t *cr, cairo_rectangle_t box, double radius) {
     cairo_new_sub_path(cr);
-    cairo_arc(cr, left + width - radius, top + radius, radius, -G_PI / 2, 0);
-    cairo_arc(cr, left + width - radius, top + height - radius, radius, 0, G_PI / 2);
-    cairo_arc(cr, left + radius, top + height - radius, radius, G_PI / 2, G_PI);
-    cairo_arc(cr, left + radius, top + radius, radius, G_PI, 3 * G_PI / 2);
+    cairo_arc(cr, box.x + box.width - radius, box.y + radius, radius, -M_PI / 2, 0);
+    cairo_arc(cr, box.x + box.width - radius, box.y + box.height - radius, radius, 0, M_PI / 2);
+    cairo_arc(cr, box.x + radius, box.y + box.height - radius, radius, M_PI / 2, M_PI);
+    cairo_arc(cr, box.x + radius, box.y + radius, radius, M_PI, 3 * M_PI / 2);
     cairo_close_path(cr);
     cairo_fill(cr);
 }
@@ -221,7 +228,8 @@ static double pill_width(PangoLayout *label) {
 
 static void draw_pill(cairo_t *cr, PangoLayout *label, double left) {
     set_ink(cr, INK_BLACK);
-    fill_rounded_rect(cr, left, PILL_TOP, pill_width(label), PILL_HEIGHT, PILL_HEIGHT / 2);
+    fill_rounded_rect(cr, (cairo_rectangle_t){left, PILL_TOP, pill_width(label), PILL_HEIGHT},
+                      PILL_HEIGHT / 2);
     set_ink(cr, INK_WHITE);
     typeset_show(cr, label, left + PILL_PADDING, LINE_BASELINE);
     set_ink(cr, INK_BLACK);
@@ -246,8 +254,10 @@ static void draw_date_line(cairo_t *cr, PangoContext *context, const struct date
 
 static void draw_rest_badge(cairo_t *cr, PangoContext *context) {
     set_ink(cr, INK_BLACK);
-    fill_rounded_rect(cr, REST_BADGE_LEFT, REST_BADGE_TOP, REST_BADGE_SIZE, REST_BADGE_SIZE,
-                      REST_BADGE_RADIUS);
+    fill_rounded_rect(
+            cr,
+            (cairo_rectangle_t){REST_BADGE_LEFT, REST_BADGE_TOP, REST_BADGE_SIZE, REST_BADGE_SIZE},
+            REST_BADGE_RADIUS);
     PangoLayout *label = typeset_line(context, LABEL, REST_DAY);
     set_ink(cr, INK_WHITE);
     typeset_show(cr, label, REST_BADGE_LEFT + (REST_BADGE_SIZE - measure(label).advance) / 2,
@@ -280,7 +290,9 @@ static void draw_date(cairo_t *cr, PangoContext *context, const struct date *dat
 
 static void draw_weather(cairo_t *cr, PangoContext *context, const struct weather_view *weather) {
     /* the icon on the left and the temperature against the right edge */
-    icons_draw_weather(cr, weather->icon, WEATHER_ICON_LEFT, WEATHER_ICON_TOP, WEATHER_ICON_SIZE);
+    icons_draw_weather(cr, weather->icon,
+                       (cairo_rectangle_t){WEATHER_ICON_LEFT, WEATHER_ICON_TOP, WEATHER_ICON_SIZE,
+                                           WEATHER_ICON_SIZE});
     PangoLayout *temperature =
             shrunk_to_fit(context, (struct shrinkable){"temperature", TABULAR_NUMBER, LINE_SIZE},
                           weather->temperature, TEMPERATURE_MAX_WIDTH);
@@ -291,14 +303,15 @@ static void draw_weather(cairo_t *cr, PangoContext *context, const struct weathe
     double line_right;
     if (weather->line_kind == WEATHER_LINE_BADGE) {
         PangoLayout *label = typeset_line(context, PILL_LABEL, weather->line);
-        const double left =
-                MAX(typeset_snap(WEATHER_ICON_CENTRE - pill_width(label) / 2), WEATHER_LEFT);
+        const double centred = typeset_snap(WEATHER_ICON_CENTRE - pill_width(label) / 2);
+        const double left = centred > WEATHER_LEFT ? centred : WEATHER_LEFT;
         draw_pill(cr, label, left);
         line_right = left + pill_width(label);
         g_object_unref(label);
     } else {
         PangoLayout *line = typeset_line(context, TABULAR_LINE, weather->line);
-        const double left = MAX(WEATHER_ICON_CENTRE - measure(line).advance / 2, WEATHER_LEFT);
+        const double centred = WEATHER_ICON_CENTRE - measure(line).advance / 2;
+        const double left = centred > WEATHER_LEFT ? centred : WEATHER_LEFT;
         typeset_show(cr, line, left, LINE_BASELINE);
         line_right = left + measure(line).advance;
         g_object_unref(line);
@@ -322,7 +335,8 @@ static void draw_counter_number(cairo_t *cr, PangoContext *context, struct count
     const struct text_metrics metrics = measure(number);
     const double centred_left = COUNTER_CENTRE_X - (metrics.ink_left + metrics.ink_right) / 2;
     const double pair_width = metrics.advance + COUNTER_UNIT_GAP + unit_advance;
-    const double left = MIN(centred_left, COUNTER_RIGHT_LIMIT - pair_width);
+    const double right_most = COUNTER_RIGHT_LIMIT - pair_width;
+    const double left = centred_left < right_most ? centred_left : right_most;
     const double baseline = COUNTER_CENTRE_Y - (metrics.ink_top + metrics.ink_bottom) / 2;
     typeset_show(cr, number, left, baseline);
     typeset_show(cr, counter.unit, left + metrics.advance + COUNTER_UNIT_GAP, baseline);
@@ -330,10 +344,11 @@ static void draw_counter_number(cairo_t *cr, PangoContext *context, struct count
 }
 
 static void draw_counter_tile(cairo_t *cr, PangoContext *context, struct counter counter,
-                              const struct draw_input *input) {
+                              struct greeting greeting) {
     /* a black tile with the counter in white along its top */
     set_ink(cr, INK_BLACK);
-    fill_rounded_rect(cr, TILE_LEFT, TILE_TOP, TILE_WIDTH, TILE_HEIGHT, TILE_RADIUS);
+    fill_rounded_rect(cr, (cairo_rectangle_t){TILE_LEFT, TILE_TOP, TILE_WIDTH, TILE_HEIGHT},
+                      TILE_RADIUS);
     set_ink(cr, INK_WHITE);
     const double unit_advance = measure(counter.unit).advance;
     PangoLayout *number = shrunk_to_fit(
@@ -345,21 +360,22 @@ static void draw_counter_tile(cairo_t *cr, PangoContext *context, struct counter
     g_object_unref(number);
 
     /* the greeting's icon and text along its bottom */
-    icons_draw_greeting(cr, input->greeting_icon, COUNTER_TEXT_LEFT, TILE_ICON_TOP);
-    PangoLayout *greeting =
+    icons_draw_greeting(cr, greeting.icon, COUNTER_TEXT_LEFT, TILE_ICON_TOP);
+    PangoLayout *text =
             shrunk_to_fit(context, (struct shrinkable){"greeting", LABEL, LINE_SIZE_MIN},
-                          input->greeting, TILE_RIGHT_LIMIT - GREETING_LEFT);
-    typeset_show(cr, greeting, GREETING_LEFT, LINE_BASELINE);
-    g_object_unref(greeting);
+                          greeting.text, TILE_RIGHT_LIMIT - GREETING_LEFT);
+    typeset_show(cr, text, GREETING_LEFT, LINE_BASELINE);
+    g_object_unref(text);
     set_ink(cr, INK_BLACK);
 }
 
-static void draw_counter(cairo_t *cr, PangoContext *context, const struct draw_input *input) {
+static void draw_counter(cairo_t *cr, PangoContext *context, int counter_days,
+                         const struct greeting *greeting) {
     char days[16];
-    snprintf(days, sizeof days, "%d", input->date.counter_days);
+    snprintf(days, sizeof days, "%d", counter_days);
     const struct counter counter = {days, typeset_line(context, LABEL, COUNTER_UNIT)};
-    if (input->show_greeting) {
-        draw_counter_tile(cr, context, counter, input);
+    if (greeting != nullptr) {
+        draw_counter_tile(cr, context, counter, *greeting);
     } else {
         draw_counter_number(cr, context, counter);
     }
@@ -389,19 +405,23 @@ struct draw_result draw(struct drawing *drawing, const struct draw_input *input,
         strcmp(input->glass_phrase, input->phrase) != 0) {
         fit = typeset_phrase(context, cr, input->glass_phrase);
         result.drew_glass_phrase = fit.fits;
+        if (!fit.fits) {
+            log_error("the phrase on the glass no longer fits the screen either; drawing none");
+        }
     }
     result.phrase_drawn = fit.fits;
     result.missing_glyphs = fit.fits ? fit.missing_glyphs : 0;
 
     /* the rule, the two dividers and the three blocks between them */
     cairo_rectangle(cr, RULE_LEFT, RULE_TOP, RULE_WIDTH, LINE_THICKNESS);
-    for (size_t i = 0; i < G_N_ELEMENTS(DIVIDERS); i++) {
+    for (size_t i = 0; i < sizeof DIVIDERS / sizeof *DIVIDERS; i++) {
         cairo_rectangle(cr, DIVIDERS[i], DIVIDER_TOP, LINE_THICKNESS, DIVIDER_HEIGHT);
     }
     cairo_fill(cr);
     draw_date(cr, context, &input->date);
     draw_weather(cr, context, &input->weather);
-    draw_counter(cr, context, input);
+    const struct greeting greeting = {input->greeting_icon, input->greeting};
+    draw_counter(cr, context, input->date.counter_days, input->show_greeting ? &greeting : nullptr);
 
     /* the frame, unless Cairo gave up somewhere along the way */
     const cairo_status_t status = cairo_status(cr);
