@@ -51,11 +51,13 @@ bool record_should_upload(const struct record_state *state, bool refreshed, int6
 struct tick_summary {
     const char *dashboard; // "dashboard ok", or the problem
     const char *weather;   // "weather fetched", "weather not due" or "weather failed"
+    bool drawn;            // without a frame there was nothing to show or send
     int64_t phrase_id;     // the phrase drawn; 0 for none
     bool too_long;         // the wanted phrase didn't fit
     int missing_glyphs;
     struct decision decision;
     bool refreshed;     // the decided refresh worked
+    bool panel;         // a panel showed it; without one the wall just took the frame
     const char *upload; // "upload ok", "no upload" or "upload failed"
 };
 

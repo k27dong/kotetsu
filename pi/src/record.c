@@ -551,6 +551,12 @@ bool record_upload(struct record_state *state, const struct config *config,
 }
 
 void record_log_tick(const struct tick_summary *tick) {
+    /* a tick that drew nothing has nothing more to tell */
+    if (!tick->drawn) {
+        log_info("%s; %s; nothing drawn; no refresh; no upload", tick->dashboard, tick->weather);
+        return;
+    }
+
     /* the phrase drawn */
     char phrase[TICK_PART_BYTES] = "no phrase";
     if (tick->phrase_id != 0) {
@@ -565,7 +571,9 @@ void record_log_tick(const struct tick_summary *tick) {
     } else {
         snprintf(refresh, sizeof refresh, "%s refresh (%s) %s",
                  tick->decision.kind == REFRESH_FULL ? "full" : "partial", reason,
-                 tick->refreshed ? "done" : "failed");
+                 !tick->refreshed ? "failed"
+                 : tick->panel    ? "done"
+                                  : "done (no panel)");
     }
 
     /* one line for the whole tick */
