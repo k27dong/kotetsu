@@ -60,6 +60,7 @@ struct drawn { // one tick's frame, and what the wall holds once it shows
 struct outcome { // what output did with the frame
     struct decision decision;
     bool refreshed;
+    bool panel;         // a panel showed it; without one the wall just took the frame
     const char *upload; // "upload ok", "no upload" or "upload failed"
 };
 
@@ -250,6 +251,12 @@ static void *upload_frame(void *argument) {
 
 static struct outcome output(struct screen *screen, const struct config *config,
                              struct state *state, const struct drawn *drawn) {
+    /* the panel, looked for again while none has answered; one just found shows nothing of ours */
+    const struct panel_search panel = screen_find_panel(screen);
+    if (panel.just_found) {
+        state->wall.known = false;
+    }
+
     /* what the frame calls for */
     const struct wanted wanted = {
             .frame = &drawn->frame,
@@ -290,11 +297,11 @@ static struct outcome output(struct screen *screen, const struct config *config,
             .on_glass = &wall->frame,
             .next = &drawn->frame,
             .kind = decision.kind,
-            .ok = screen == nullptr,
+            .ok = !panel.found,
     };
     pthread_t threads[2];
     size_t count = 0;
-    if (refreshing && screen != nullptr) {
+    if (refreshing && panel.found) {
         threads[count++] = start_thread(refresh_panel, &refresh);
     }
     if (uploading) {
@@ -322,6 +329,7 @@ static struct outcome output(struct screen *screen, const struct config *config,
     return (struct outcome){
             .decision = decision,
             .refreshed = refreshing && refresh.ok,
+            .panel = panel.found,
             .upload = !uploading  ? "no upload"
                       : upload.ok ? "upload ok"
                                   : "upload failed",
@@ -346,11 +354,7 @@ static void sleep_until_next_tick(const struct timespec *started) {
 
 static int clear_panel(void) {
     struct screen *screen = screen_open();
-    if (screen == nullptr) {
-        log_error("no panel to clear");
-        return EXIT_FAILURE;
-    }
-    const bool cleared = screen_clear(screen);
+    const bool cleared = screen_clear(screen); // which says when there is no panel
     screen_close(screen);
     return cleared ? EXIT_SUCCESS : EXIT_FAILURE;
 }
@@ -436,7 +440,7 @@ int main(int argc, char *argv[]) {
                     .missing_glyphs = drawn.missing_glyphs,
                     .decision = outcome.decision,
                     .refreshed = outcome.refreshed,
-                    .panel = screen != nullptr,
+                    .panel = outcome.panel,
                     .upload = outcome.upload,
             };
             record_log_tick(&summary);
