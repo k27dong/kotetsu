@@ -1,0 +1,289 @@
+#include "draw/icons.h"
+
+#include <math.h>
+#include <stddef.h>
+
+#include <cairo.h>
+
+#include "phrase.h"
+#include "weather.h"
+
+static constexpr double GREETING_ICON_SIZE = 26;
+static constexpr int SUN_RAYS = 8;
+
+struct point {
+    double x;
+    double y;
+};
+
+struct columns {
+    size_t count;
+    double x[4];
+};
+
+struct drops {
+    double top;
+    double bottom;
+    double width;
+};
+
+static void circle(cairo_t *cr, double x, double y, double radius) {
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x, y, radius, 0, 2 * M_PI);
+}
+
+static void line(cairo_t *cr, struct point from, struct point to, double width) {
+    cairo_set_line_width(cr, width);
+    cairo_move_to(cr, from.x, from.y);
+    cairo_line_to(cr, to.x, to.y);
+    cairo_stroke(cr);
+}
+
+static void cloud_path(cairo_t *cr, double left, double top, double width) {
+    cairo_save(cr);
+    cairo_translate(cr, left, top);
+    cairo_scale(cr, width, width);
+    circle(cr, 0.24, 0.40, 0.22);
+    circle(cr, 0.52, 0.30, 0.30);
+    circle(cr, 0.78, 0.42, 0.20);
+    circle(cr, 0.13, 0.51, 0.11);
+    circle(cr, 0.87, 0.51, 0.11);
+    cairo_rectangle(cr, 0.13, 0.40, 0.74, 0.22);
+    cairo_restore(cr);
+}
+
+static void cloud(cairo_t *cr, double left, double top, double width) {
+    cloud_path(cr, left, top, width);
+    cairo_fill(cr);
+}
+
+static void sun(cairo_t *cr, double x, double y, double radius) {
+    circle(cr, x, y, radius);
+    cairo_fill(cr);
+    cairo_set_line_width(cr, radius * 0.40);
+    for (int ray = 0; ray < SUN_RAYS; ray++) {
+        cairo_save(cr);
+        cairo_translate(cr, x, y);
+        cairo_rotate(cr, ray * 2 * M_PI / SUN_RAYS);
+        cairo_move_to(cr, radius * 1.45, 0);
+        cairo_line_to(cr, radius * 2.10, 0);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+    }
+}
+
+static void upper_cloud(cairo_t *cr) {
+    cloud(cr, 0.04, 0.02, 0.92);
+}
+
+static void rain(cairo_t *cr, struct columns columns, struct drops drops) {
+    const double slant = (drops.bottom - drops.top) * 0.32;
+    for (size_t i = 0; i < columns.count; i++) {
+        line(cr, (struct point){columns.x[i], drops.top},
+             (struct point){columns.x[i] - slant, drops.bottom}, drops.width);
+    }
+}
+
+static void flakes(cairo_t *cr, struct columns columns, double y) {
+    for (size_t i = 0; i < columns.count; i++) {
+        circle(cr, columns.x[i], y, 0.065);
+    }
+    cairo_fill(cr);
+}
+
+static void bolt(cairo_t *cr) {
+    cairo_move_to(cr, 0.50, 0.64);
+    cairo_line_to(cr, 0.34, 0.86);
+    cairo_line_to(cr, 0.47, 0.86);
+    cairo_line_to(cr, 0.40, 1.00);
+    cairo_line_to(cr, 0.68, 0.78);
+    cairo_line_to(cr, 0.54, 0.78);
+    cairo_line_to(cr, 0.62, 0.64);
+    cairo_close_path(cr);
+    cairo_fill(cr);
+}
+
+static void erase_stroke(cairo_t *cr, double width) {
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
+    cairo_set_line_width(cr, width);
+    cairo_stroke(cr);
+    cairo_restore(cr);
+}
+
+void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t box) {
+    /* where drops and flakes fall, across the unit square */
+    static const struct columns three = {.count = 3, .x = {0.30, 0.50, 0.70}};
+    static const struct columns four = {.count = 4, .x = {0.22, 0.40, 0.58, 0.76}};
+    static const struct columns sides = {.count = 2, .x = {0.30, 0.70}};
+    static const struct columns middle = {.count = 1, .x = {0.50}};
+    static const struct columns upper = {.count = 3, .x = {0.26, 0.50, 0.74}};
+    static const struct columns lower = {.count = 2, .x = {0.38, 0.62}};
+
+    /* draw in a unit square over the box, with round ends on every stroke */
+    cairo_save(cr);
+    cairo_translate(cr, box.x, box.y);
+    cairo_scale(cr, box.width, box.height);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+
+    /* the picture, in black with white gaps */
+    switch (icon) {
+    /* the sun, alone or behind a cloud with a gap around it */
+    case WEATHER_ICON_SUN:
+        sun(cr, 0.50, 0.50, 0.21);
+        break;
+    case WEATHER_ICON_PARTLY:
+        sun(cr, 0.34, 0.34, 0.15);
+        cloud_path(cr, 0.14, 0.40, 0.84);
+        erase_stroke(cr, 0.09);
+        cloud(cr, 0.14, 0.40, 0.84);
+        break;
+
+    /* a cloud, and fog's two bars under it */
+    case WEATHER_ICON_CLOUD:
+        cloud(cr, 0.02, 0.19, 0.96);
+        break;
+    case WEATHER_ICON_FOG:
+        upper_cloud(cr);
+        line(cr, (struct point){0.12, 0.72}, (struct point){0.88, 0.72}, 0.08);
+        line(cr, (struct point){0.24, 0.88}, (struct point){0.76, 0.88}, 0.08);
+        break;
+
+    /* rain: longer and more drops as it gets heavier, or a bolt */
+    case WEATHER_ICON_DRIZZLE:
+        upper_cloud(cr);
+        rain(cr, three, (struct drops){0.72, 0.84, 0.075});
+        break;
+    case WEATHER_ICON_RAIN:
+        upper_cloud(cr);
+        rain(cr, three, (struct drops){0.70, 0.96, 0.08});
+        break;
+    case WEATHER_ICON_HEAVY_RAIN:
+        upper_cloud(cr);
+        rain(cr, four, (struct drops){0.68, 0.98, 0.085});
+        break;
+    case WEATHER_ICON_STORM:
+        upper_cloud(cr);
+        bolt(cr);
+        break;
+
+    /* snow: flakes in one or two rows, or sleet's flake between two drops */
+    case WEATHER_ICON_SLEET:
+        upper_cloud(cr);
+        rain(cr, sides, (struct drops){0.70, 0.96, 0.08});
+        flakes(cr, middle, 0.85);
+        break;
+    case WEATHER_ICON_SNOW:
+        upper_cloud(cr);
+        flakes(cr, three, 0.84);
+        break;
+    case WEATHER_ICON_HEAVY_SNOW:
+        upper_cloud(cr);
+        flakes(cr, upper, 0.75);
+        flakes(cr, lower, 0.93);
+        break;
+
+    /* offline: a cloud struck through, with a gap around the stroke */
+    case WEATHER_ICON_OFFLINE:
+        cloud(cr, 0.02, 0.19, 0.96);
+        cairo_move_to(cr, 0.16, 0.14);
+        cairo_line_to(cr, 0.84, 0.90);
+        erase_stroke(cr, 0.20);
+        line(cr, (struct point){0.16, 0.14}, (struct point){0.84, 0.90}, 0.08);
+        break;
+    }
+    cairo_restore(cr);
+}
+
+static void heart_path(cairo_t *cr) {
+    cairo_move_to(cr, 0.50, 0.92);
+    cairo_curve_to(cr, 0.20, 0.70, 0.02, 0.50, 0.05, 0.30);
+    cairo_curve_to(cr, 0.09, 0.08, 0.38, 0.06, 0.50, 0.26);
+    cairo_curve_to(cr, 0.62, 0.06, 0.91, 0.08, 0.95, 0.30);
+    cairo_curve_to(cr, 0.98, 0.50, 0.80, 0.70, 0.50, 0.92);
+    cairo_close_path(cr);
+}
+
+static void placed_heart(cairo_t *cr, double left, double top, double size) {
+    cairo_save(cr);
+    cairo_translate(cr, left, top);
+    cairo_scale(cr, size, size);
+    heart_path(cr);
+    cairo_restore(cr);
+}
+
+static void star_path(cairo_t *cr, struct point centre, double outer, double inner) {
+    cairo_save(cr);
+    cairo_translate(cr, centre.x, centre.y);
+    for (int point = 0; point < 10; point++) {
+        cairo_save(cr);
+        cairo_rotate(cr, point * M_PI / 5);
+        const double radius = point % 2 == 0 ? outer : inner;
+        if (point == 0) {
+            cairo_move_to(cr, 0, -radius);
+        } else {
+            cairo_line_to(cr, 0, -radius);
+        }
+        cairo_restore(cr);
+    }
+    cairo_close_path(cr);
+    cairo_restore(cr);
+}
+
+void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double y) {
+    /* draw in a unit square at the icon's corner */
+    cairo_save(cr);
+    cairo_translate(cr, x, y);
+    cairo_scale(cr, GREETING_ICON_SIZE, GREETING_ICON_SIZE);
+
+    /* the shape as one path; only the rings stroke it themselves */
+    switch (icon) {
+    case GREETING_HEART:
+        heart_path(cr);
+        break;
+    case GREETING_RINGS:
+        cairo_set_line_width(cr, 0.11);
+        circle(cr, 0.34, 0.56, 0.26);
+        circle(cr, 0.66, 0.56, 0.26);
+        cairo_stroke(cr);
+        break;
+
+    /* the cake: two tiers, a candle and its flame */
+    case GREETING_CAKE:
+        cairo_rectangle(cr, 0.04, 0.64, 0.92, 0.32);
+        cairo_rectangle(cr, 0.20, 0.42, 0.60, 0.22);
+        cairo_rectangle(cr, 0.45, 0.20, 0.10, 0.22);
+        cairo_save(cr);
+        cairo_translate(cr, 0.50, 0.07);
+        cairo_scale(cr, 0.07, 0.08);
+        circle(cr, 0, 0, 1);
+        cairo_restore(cr);
+        break;
+
+    /* the cat: a head with an ear on each side */
+    case GREETING_CAT:
+        circle(cr, 0.50, 0.60, 0.36);
+        cairo_move_to(cr, 0.17, 0.44);
+        cairo_line_to(cr, 0.20, 0.06);
+        cairo_line_to(cr, 0.50, 0.28);
+        cairo_close_path(cr);
+        cairo_move_to(cr, 0.83, 0.44);
+        cairo_line_to(cr, 0.50, 0.28);
+        cairo_line_to(cr, 0.80, 0.06);
+        cairo_close_path(cr);
+        break;
+
+    /* two hearts, and the star */
+    case GREETING_HEARTS:
+        placed_heart(cr, 0.00, 0.02, 0.52);
+        placed_heart(cr, 0.44, 0.40, 0.56);
+        break;
+    case GREETING_STAR:
+        star_path(cr, (struct point){0.50, 0.54}, 0.50, 0.21);
+        break;
+    }
+
+    /* fill what the path holds */
+    cairo_fill(cr);
+    cairo_restore(cr);
+}
