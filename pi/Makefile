@@ -24,6 +24,7 @@ SRCS := \
 	src/record.c \
 	src/screen/epd.c \
 	src/screen/screen.c \
+	src/shared/dashboard.c \
 	src/shared/file.c \
 	src/shared/http.c \
 	src/shared/json.c \

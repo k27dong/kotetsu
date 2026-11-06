@@ -18,6 +18,7 @@
 #include "phrase.h"
 #include "record.h"
 #include "screen/screen.h"
+#include "shared/dashboard.h"
 #include "shared/log.h"
 #include "shared/time.h"
 #include "warnings.h"
@@ -163,8 +164,8 @@ static struct inputs collect(const struct config *config, struct state *state, t
 
     /* what the dashboard said */
     inputs.phrase = fetch.phrase;
-    if (inputs.phrase.status != PHRASE_OK) {
-        record_error(&state->record, phrase_problem(inputs.phrase.status));
+    if (inputs.phrase.status != DASHBOARD_OK) {
+        record_error(&state->record, dashboard_problem(inputs.phrase.status));
     }
 
     /* what the weather sources said, kept for the next 30 minutes */
@@ -425,15 +426,17 @@ int main(int argc, char *argv[]) {
 
             /* 4. one line for the whole tick */
             const struct tick_summary summary = {
-                    .dashboard = inputs.phrase.status == PHRASE_OK
+                    .dashboard = inputs.phrase.status == DASHBOARD_OK
                                          ? "dashboard ok"
-                                         : phrase_problem(inputs.phrase.status),
+                                         : dashboard_problem(inputs.phrase.status),
                     .weather = inputs.weather,
+                    .drawn = true,
                     .phrase_id = drawn.phrase_id,
                     .too_long = drawn.too_long_id != 0,
                     .missing_glyphs = drawn.missing_glyphs,
                     .decision = outcome.decision,
                     .refreshed = outcome.refreshed,
+                    .panel = screen != nullptr,
                     .upload = outcome.upload,
             };
             record_log_tick(&summary);
