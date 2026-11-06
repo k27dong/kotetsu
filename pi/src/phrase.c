@@ -4,13 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include <cjson/cJSON.h>
 
 #include "config.h"
+#include "shared/dashboard.h"
 #include "shared/http.h"
 #include "shared/json.h"
 #include "shared/log.h"
@@ -127,16 +127,16 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
     return true;
 }
 
-enum phrase_status phrase_parse(const char *json, struct phrase_answer *out) {
+enum dashboard_status phrase_parse(const char *json, struct phrase_answer *out) {
     cJSON *root = cJSON_Parse(json);
     struct phrase_answer answer = {};
     const bool good = read_answer(root, &answer);
     cJSON_Delete(root);
     if (!good) {
-        return PHRASE_BAD_RESPONSE;
+        return DASHBOARD_BAD_RESPONSE;
     }
     *out = answer;
-    return PHRASE_OK;
+    return DASHBOARD_OK;
 }
 
 struct phrase phrase_fetch(struct phrase_state *state, const struct config *config, time_t now) {
@@ -147,30 +147,20 @@ struct phrase phrase_fetch(struct phrase_state *state, const struct config *conf
 
     /* read the answer, or log what the dashboard said and name the problem */
     struct phrase_answer answer = {};
-    enum phrase_status status = PHRASE_UNREACHABLE;
+    enum dashboard_status status = DASHBOARD_UNREACHABLE;
     if (response.ok && response.status == HTTP_OK) {
         status = phrase_parse(response.body, &answer);
     } else if (response.ok) {
-        cJSON *root = cJSON_Parse(response.body);
-        const char *error = cJSON_GetStringValue(json_member(root, "error"));
-        log_error("%s answered %ld%s%s", url, response.status, error != nullptr ? ": " : "",
-                  error != nullptr ? error : "");
-        cJSON_Delete(root);
-        if (response.status == 503) {
-            status = PHRASE_NONE_AVAILABLE;
-        } else if (response.status == 401 || response.status == 403) {
-            status = PHRASE_UNAUTHORIZED;
-        } else if (response.status >= 500) {
-            status = PHRASE_UNREACHABLE;
-        } else {
-            status = PHRASE_BAD_RESPONSE;
+        status = dashboard_log_answer(url, &response);
+        if (response.status == 503) { // the dashboard's own answer when it has nothing to show
+            status = DASHBOARD_NO_PHRASE;
         }
     }
     http_response_free(&response);
 
     /* keep a good answer and the Warsaw day it came on */
     const struct civil_date today = time_warsaw_date(now);
-    if (status == PHRASE_OK) {
+    if (status == DASHBOARD_OK) {
         state->have_answer = true;
         state->answer = answer;
         state->answered_on = today;
@@ -183,21 +173,4 @@ struct phrase phrase_fetch(struct phrase_state *state, const struct config *conf
             .answer = state->answer,
             .answered_today = state->have_answer && time_same_date(state->answered_on, today),
     };
-}
-
-const char *phrase_problem(enum phrase_status status) {
-    switch (status) {
-    case PHRASE_OK:
-        return nullptr;
-    case PHRASE_UNREACHABLE:
-        return "dashboard unreachable";
-    case PHRASE_UNAUTHORIZED:
-        return "dashboard unauthorized";
-    case PHRASE_BAD_RESPONSE:
-        return "dashboard bad response";
-    case PHRASE_NONE_AVAILABLE:
-        return "no phrase available";
-    }
-    log_error("%d isn't a phrase status", (int)status);
-    abort();
 }
