@@ -14,8 +14,8 @@
 
 #include "config.h"
 #include "draw/frame.h"
-#include "phrase.h"
 #include "screen/screen.h"
+#include "shared/dashboard.h"
 #include "shared/file.h"
 #include "shared/http.h"
 #include "shared/json.h"
@@ -532,18 +532,9 @@ bool record_upload(struct record_state *state, const struct config *config,
 
     /* any answer but a stored screen names the problem */
     const bool stored = response.ok && response.status == HTTP_NO_CONTENT;
-    enum phrase_status problem = PHRASE_UNREACHABLE;
+    enum dashboard_status problem = DASHBOARD_UNREACHABLE;
     if (response.ok && !stored) {
-        cJSON *root = cJSON_Parse(response.body);
-        const char *error = cJSON_GetStringValue(json_member(root, "error"));
-        log_error("%s answered %ld%s%s", url, response.status, error != nullptr ? ": " : "",
-                  error != nullptr ? error : "");
-        cJSON_Delete(root);
-        if (response.status == 401 || response.status == 403) {
-            problem = PHRASE_UNAUTHORIZED;
-        } else if (response.status < 500) {
-            problem = PHRASE_BAD_RESPONSE;
-        }
+        problem = dashboard_log_answer(url, &response);
     }
     http_response_free(&response);
 
@@ -553,7 +544,7 @@ bool record_upload(struct record_state *state, const struct config *config,
         state->reported_too_long_id = report->too_long_id;
     } else {
         char error[sizeof state->last_error];
-        snprintf(error, sizeof error, "upload failed: %s", phrase_problem(problem));
+        snprintf(error, sizeof error, "upload failed: %s", dashboard_problem(problem));
         record_error(state, error);
     }
     return stored;
