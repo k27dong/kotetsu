@@ -69,7 +69,7 @@ DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
 LDFLAGS := -pthread
 ifeq ($(RELEASE),1)
 CFLAGS += -O2 -fstrict-flex-arrays=3
-# the hardening and linker flags are GCC's and GNU ld's: Apple clang and ld64 reject them
+# guarded to Linux: Apple clang rejects -fhardened and ld64 rejects the GNU ld flags
 ifeq ($(SYSTEM),Linux)
 CFLAGS += -fhardened -mbranch-protection=standard
 LDFLAGS += -Wl,-z,noexecstack -Wl,--as-needed
