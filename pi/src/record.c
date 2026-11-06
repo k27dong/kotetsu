@@ -260,7 +260,6 @@ static void keep_valid_utf8(char *text) {
 }
 
 void record_error(struct record_state *state, const char *text) {
-    log_error("%s", text);
     snprintf(state->last_error, sizeof state->last_error, "%s", text);
     keep_valid_utf8(state->last_error); // the cut can split a character
 }

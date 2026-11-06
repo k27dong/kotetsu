@@ -19,7 +19,7 @@ struct record_state {
                                   struct weather_state *weather);
 [[nodiscard]] bool record_save(const char *path, const struct wall *wall,
                                const struct weather_state *weather);
-// logs it and keeps it for the next report
+// keeps it for the next report; the caller has logged it where it happened
 void record_error(struct record_state *state, const char *text);
 
 struct report { // 0 or nullptr means none
