@@ -248,7 +248,7 @@ void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double 
         cairo_stroke(cr);
         break;
 
-    /* the cake: three tiers, a candle and its flame */
+    /* the cake: two tiers, a candle and its flame */
     case GREETING_CAKE:
         cairo_rectangle(cr, 0.04, 0.64, 0.92, 0.32);
         cairo_rectangle(cr, 0.20, 0.42, 0.60, 0.22);
