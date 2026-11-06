@@ -24,7 +24,8 @@ struct draw_result {
     bool ok;
     bool too_long;          // the wanted phrase doesn't fit even at the smallest size
     bool drew_glass_phrase; // too long, and the glass phrase is on the frame instead
-    bool phrase_drawn;      // with too_long: the glass phrase, or none; draw() logs when none fits
+    bool phrase_drawn;      // with too_long: the glass phrase, or none; draw() logs when a
+                            // different glass phrase doesn't fit either
     int missing_glyphs;     // in the phrase drawn
 };
 
