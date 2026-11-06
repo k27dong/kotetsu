@@ -422,29 +422,30 @@ int main(int argc, char *argv[]) {
         const struct inputs inputs = collect(&config, &state, now);
 
         /* 2. draw one frame from what was collected */
+        struct tick_summary summary = {
+                .dashboard = inputs.phrase.status == DASHBOARD_OK
+                                     ? "dashboard ok"
+                                     : dashboard_problem(inputs.phrase.status),
+                .weather = inputs.weather,
+                .upload = "no upload",
+        };
         struct drawn drawn;
         if (draw_frame(drawing, &inputs, &state, &drawn)) {
 
             /* 3. output: the panel and the dashboard side by side, then the record */
             const struct outcome outcome = output(screen, &config, &state, &drawn);
-
-            /* 4. one line for the whole tick */
-            const struct tick_summary summary = {
-                    .dashboard = inputs.phrase.status == DASHBOARD_OK
-                                         ? "dashboard ok"
-                                         : dashboard_problem(inputs.phrase.status),
-                    .weather = inputs.weather,
-                    .drawn = true,
-                    .phrase_id = drawn.phrase_id,
-                    .too_long = drawn.too_long_id != 0,
-                    .missing_glyphs = drawn.missing_glyphs,
-                    .decision = outcome.decision,
-                    .refreshed = outcome.refreshed,
-                    .panel = outcome.panel,
-                    .upload = outcome.upload,
-            };
-            record_log_tick(&summary);
+            summary.drawn = true;
+            summary.phrase_id = drawn.phrase_id;
+            summary.too_long = drawn.too_long_id != 0;
+            summary.missing_glyphs = drawn.missing_glyphs;
+            summary.decision = outcome.decision;
+            summary.refreshed = outcome.refreshed;
+            summary.panel = outcome.panel;
+            summary.upload = outcome.upload;
         }
+
+        /* 4. one line for the whole tick, drawn or not */
+        record_log_tick(&summary);
 
         sleep_until_next_tick(&started);
     }
