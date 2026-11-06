@@ -68,8 +68,12 @@ CFLAGS := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-convers
 DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
 LDFLAGS := -pthread
 ifeq ($(RELEASE),1)
-CFLAGS += -O2 -fhardened -fstrict-flex-arrays=3 -mbranch-protection=standard
+CFLAGS += -O2 -fstrict-flex-arrays=3
+# the hardening and linker flags are GCC's and GNU ld's: Apple clang and ld64 reject them
+ifeq ($(SYSTEM),Linux)
+CFLAGS += -fhardened -mbranch-protection=standard
 LDFLAGS += -Wl,-z,noexecstack -Wl,--as-needed
+endif
 else
 CFLAGS := $(DEVELOPMENT_CFLAGS)
 endif
