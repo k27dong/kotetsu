@@ -256,6 +256,9 @@ static struct outcome output(struct screen *screen, const struct config *config,
     if (panel.just_found) {
         state->wall.known = false;
     }
+    if (screen != nullptr && !panel.found) {
+        record_error(&state->record, "no panel"); // an upload clears it, so set it every tick
+    }
 
     /* what the frame calls for */
     const struct wanted wanted = {
@@ -421,7 +424,7 @@ int main(int argc, char *argv[]) {
         /* 1. collect: each network source in its own thread */
         const struct inputs inputs = collect(&config, &state, now);
 
-        /* 2. draw one frame from what was collected */
+        /* 2. start the tick line from what was collected, then draw one frame */
         struct tick_summary summary = {
                 .dashboard = inputs.phrase.status == DASHBOARD_OK
                                      ? "dashboard ok"
