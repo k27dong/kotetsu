@@ -63,6 +63,8 @@ static struct http_response request(const char *url, const char *bearer,
             curl_easy_setopt(curl, CURLOPT_TIMEOUT, TOTAL_TIMEOUT_SECONDS) == CURLE_OK &&
             // without it, a timed-out request still waits for a hung DNS lookup to finish
             curl_easy_setopt(curl, CURLOPT_QUICK_EXIT, 1L) == CURLE_OK &&
+            // transfers run on several threads at once, so curl must leave SIGPIPE to main
+            curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L) == CURLE_OK &&
             curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE, MAX_BODY_BYTES) == CURLE_OK &&

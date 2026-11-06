@@ -63,9 +63,9 @@ LDLIBS := $(shell $(PKG_CONFIG) --libs $(PACKAGES))
 CFLAGS := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvla \
 	-Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough \
 	-finput-charset=UTF-8 -fexec-charset=UTF-8 \
-	-D_DEFAULT_SOURCE -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
+	-D_DEFAULT_SOURCE -pthread -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
 DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
-LDFLAGS :=
+LDFLAGS := -pthread
 ifeq ($(RELEASE),1)
 CFLAGS += -O2 -fhardened -fstrict-flex-arrays=3 -mbranch-protection=standard
 LDFLAGS += -Wl,-z,noexecstack -Wl,--as-needed

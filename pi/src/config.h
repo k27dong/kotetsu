@@ -10,8 +10,6 @@ static constexpr size_t PHRASE_TEXT_MAX_BYTES = 2048;
 #define DASHBOARD_URL_DEFAULT "https://kotetsu.k27dong.com"
 
 #define FONT_DIR_DEFAULT "/usr/local/share/kotetsu/fonts"
-#define FONT_FILE_CJK    "LXGWWenKaiGBScreen.ttf"
-#define FONT_FILE_DIGITS "Inter-SemiBold.ttf"
 
 #define STATE_PATH_DEFAULT "/var/lib/kotetsu/state"
 

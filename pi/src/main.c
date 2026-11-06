@@ -148,7 +148,8 @@ static struct inputs collect(const struct config *config, struct state *state, t
             .now = now,
     };
     void *(*const sources[])(void *) = {fetch_phrase, fetch_forecast, fetch_air, fetch_warnings};
-    const size_t count = weather_due(&state->weather, now) ? sizeof sources / sizeof *sources : 1;
+    const bool fetching_weather = weather_due(&state->weather, now);
+    const size_t count = fetching_weather ? sizeof sources / sizeof *sources : 1;
     pthread_t threads[sizeof sources / sizeof *sources];
     for (size_t i = 0; i < count; i++) {
         threads[i] = start_thread(sources[i], &fetch);
@@ -167,7 +168,7 @@ static struct inputs collect(const struct config *config, struct state *state, t
     }
 
     /* what the weather sources said, kept for the next 30 minutes */
-    if (count > 1) {
+    if (fetching_weather) {
         weather_absorb(&state->weather, &fetch.weather, now);
         inputs.weather = fetch.weather.forecast.ok ? "weather fetched" : "weather failed";
         if (!fetch.weather.forecast.ok) {
@@ -223,17 +224,13 @@ static bool draw_frame(struct drawing *drawing, const struct inputs *inputs, str
     out->too_long_id = result.too_long ? wanted_id : 0;
     out->missing_glyphs = result.missing_glyphs;
 
-    /* say once which phrase is too long, and when the glass's own no longer fits either */
+    /* say once which phrase is too long */
     if (out->too_long_id != state->too_long_logged) {
         if (out->too_long_id != 0) {
             log_warning("phrase %" PRId64 " doesn't fit the screen; the glass keeps its phrase",
                         out->too_long_id);
         }
         state->too_long_logged = out->too_long_id;
-    }
-    if (result.too_long && glass_text != nullptr && !result.drew_glass_phrase &&
-        strcmp(glass_text, wanted_text) != 0) {
-        log_error("phrase %" PRId64 " on the glass no longer fits the screen", wall->phrase_id);
     }
     return true;
 }
@@ -398,6 +395,7 @@ int main(int argc, char *argv[]) {
     if (!stop_on(SIGTERM) || !stop_on(SIGINT)) {
         return EXIT_FAILURE;
     }
+    signal(SIGPIPE, SIG_IGN); // a dashboard that drops an upload mid-way must not end the program
     log_info("kotetsu %s: dashboard %s, state %s", KOTETSU_VERSION, config.dashboard_url,
              config.state_path);
 

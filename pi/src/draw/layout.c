@@ -22,6 +22,9 @@
 #include "shared/log.h"
 #include "weather.h"
 
+#define FONT_FILE_CJK    "LXGWWenKaiGBScreen.ttf"
+#define FONT_FILE_DIGITS "Inter-SemiBold.ttf"
+
 static constexpr double RULE_LEFT = 32;
 static constexpr double RULE_TOP = 336;
 static constexpr double RULE_WIDTH = 736;
