@@ -69,8 +69,14 @@ const char *screen_reason_text(enum refresh_reason reason);
 
 struct screen;
 
-struct screen *screen_open(void); // nullptr without a panel: BUSY stays low after deep sleep
+struct panel_search {
+    bool found;
+    bool just_found; // its first answer since the board opened, so the glass holds nothing of ours
+};
+
+struct screen *screen_open(void); // nullptr without a board, as on the Mac
+struct panel_search screen_find_panel(struct screen *screen); // looks again while none has answered
 [[nodiscard]] bool screen_refresh(struct screen *screen, const struct frame *on_glass,
                                   const struct frame *next, enum refresh_kind kind);
-[[nodiscard]] bool screen_clear(struct screen *screen);
+[[nodiscard]] bool screen_clear(struct screen *screen); // false without a panel, which it says
 void screen_close(struct screen *screen);

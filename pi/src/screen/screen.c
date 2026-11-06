@@ -19,6 +19,7 @@ static constexpr int CLEANUP_MINUTE_DEFAULT = 600;
 
 struct screen {
     struct board *board;
+    bool panel;
 };
 
 void screen_wall_init(struct wall *wall) {
@@ -170,6 +171,12 @@ const char *screen_reason_text(enum refresh_reason reason) {
     abort();
 }
 
+static int busy_after_sleep(struct board *board) {
+    /* a panel answers deep sleep by holding BUSY high; an empty header reads low */
+    const struct epd_steps sleep = epd_sleep_steps();
+    return board_run(board, &sleep) ? board_read_busy(board) : -1;
+}
+
 struct screen *screen_open(void) {
     /* the GPIO lines and SPI, which board_open explains when it can't open them */
     struct board *board = board_open();
@@ -178,23 +185,36 @@ struct screen *screen_open(void) {
         return nullptr;
     }
 
-    /* a panel answers deep sleep by holding BUSY high; an empty header reads low */
-    const struct epd_steps sleep = epd_sleep_steps();
-    const int busy = board_run(board, &sleep) ? board_read_busy(board) : -1;
-    if (busy != 1) {
-        log_info("no panel: BUSY reads %d after deep sleep", busy);
-        board_close(board);
-        return nullptr;
-    }
-
-    /* the screen owns the board from here on */
+    /* the screen owns the board from here on, whether or not a panel answers */
     struct screen *screen = malloc(sizeof *screen);
     if (screen == nullptr) {
         log_error("out of memory opening the screen");
         abort();
     }
     screen->board = board;
+
+    /* a panel that doesn't answer now, as with BUSY stuck at boot, is looked for again later */
+    const int busy = busy_after_sleep(board);
+    screen->panel = busy == 1;
+    if (!screen->panel) {
+        log_warning("no panel: BUSY reads %d after deep sleep", busy);
+    }
     return screen;
+}
+
+struct panel_search screen_find_panel(struct screen *screen) {
+    /* nothing to look for without a board, and nothing more to do once a panel has answered */
+    if (screen == nullptr || screen->panel) {
+        return (struct panel_search){.found = screen != nullptr};
+    }
+
+    /* the same reset and deep sleep as at the start, which never touch the glass */
+    if (busy_after_sleep(screen->board) != 1) {
+        return (struct panel_search){};
+    }
+    log_info("panel found: BUSY reads 1 after deep sleep");
+    screen->panel = true;
+    return (struct panel_search){.found = true, .just_found = true};
 }
 
 bool screen_refresh(struct screen *screen, const struct frame *on_glass, const struct frame *next,
@@ -204,6 +224,10 @@ bool screen_refresh(struct screen *screen, const struct frame *on_glass, const s
 }
 
 bool screen_clear(struct screen *screen) {
+    if (screen == nullptr || !screen->panel) {
+        log_error("no panel to clear");
+        return false;
+    }
     struct frame white;
     frame_fill_white(&white);
     const struct epd_steps steps = epd_clear_steps(&white);
