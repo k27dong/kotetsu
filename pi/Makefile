@@ -13,39 +13,38 @@ BUILD ?= build
 endif
 
 SRCS := \
-	src/app.c \
-	src/calendar/calendar.c \
-	src/calendar/clock.c \
-	src/calendar/lunar.c \
-	src/calendar/lunar_table.c \
-	src/json.c \
-	src/log.c \
-	src/panel/epd.c \
-	src/panel/refresh.c \
-	src/panel/state.c \
-	src/render/blocks.c \
-	src/render/fonts.c \
-	src/render/frame.c \
-	src/render/icons.c \
-	src/render/layout.c \
-	src/render/screen.c \
-	src/render/text.c \
-	src/render/wifi_qr.c \
-	src/sources/air.c \
-	src/sources/dashboard.c \
-	src/sources/http.c \
-	src/sources/warning.c \
-	src/sources/weather.c \
-	src/sources/wifi.c
+	src/config.c \
+	src/date.c \
+	src/draw/frame.c \
+	src/draw/icons.c \
+	src/draw/layout.c \
+	src/draw/typeset.c \
+	src/lunar_table.c \
+	src/phrase.c \
+	src/record.c \
+	src/screen/epd.c \
+	src/screen/screen.c \
+	src/shared/dashboard.c \
+	src/shared/file.c \
+	src/shared/http.c \
+	src/shared/json.c \
+	src/shared/log.c \
+	src/shared/text.c \
+	src/shared/time.c \
+	src/warnings.c \
+	src/weather.c
 
 PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
 
+# only Linux has the panel driver (GPIO and SPI) and the Wi-Fi signal reader (nl80211)
 SYSTEM := $(shell uname -s)
 ifeq ($(SYSTEM),Linux)
-SRCS += src/panel/board_linux.c src/panel/display_epd.c
+SRCS += src/screen/board_linux.c
 PACKAGES += libgpiod libnl-genl-3.0
-else ifeq ($(SYSTEM),Darwin)
-SRCS += src/panel/display_png.c
+else
+SRCS += src/screen/board_none.c
+endif
+ifeq ($(SYSTEM),Darwin)
 SDKROOT ?= $(shell xcrun --show-sdk-path)
 export SDKROOT
 PKG_CONFIG_PATH := $(shell brew --prefix curl)/lib/pkgconfig$(if $(PKG_CONFIG_PATH),:$(PKG_CONFIG_PATH))
@@ -65,12 +64,16 @@ LDLIBS := $(shell $(PKG_CONFIG) --libs $(PACKAGES))
 CFLAGS := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvla \
 	-Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough \
 	-finput-charset=UTF-8 -fexec-charset=UTF-8 \
-	-D_DEFAULT_SOURCE -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
+	-D_DEFAULT_SOURCE -pthread -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
 DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
-LDFLAGS :=
+LDFLAGS := -pthread
 ifeq ($(RELEASE),1)
-CFLAGS += -O2 -fhardened -fstrict-flex-arrays=3 -mbranch-protection=standard
+CFLAGS += -O2 -fstrict-flex-arrays=3
+# guarded to Linux: Apple clang rejects -fhardened and ld64 rejects the GNU ld flags
+ifeq ($(SYSTEM),Linux)
+CFLAGS += -fhardened -mbranch-protection=standard
 LDFLAGS += -Wl,-z,noexecstack -Wl,--as-needed
+endif
 else
 CFLAGS := $(DEVELOPMENT_CFLAGS)
 endif
@@ -85,6 +88,7 @@ FORMAT_FILES := $(sort $(shell find src -name '*.[ch]'))
 
 all: $(BUILD)/kotetsu
 
+# the modules without main, for the tests to link
 lib: $(BUILD)/libkotetsu_core.a
 
 $(BUILD)/kotetsu: $(BUILD)/main.o $(BUILD)/libkotetsu_core.a
@@ -109,6 +113,7 @@ tidy:
 
 check: format-check all
 
+# the flags the tests build with
 flags:
 	@echo 'CFLAGS=$(CFLAGS)'
 	@echo 'LDLIBS=$(LDLIBS)'
