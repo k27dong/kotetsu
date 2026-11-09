@@ -38,8 +38,7 @@ static void request_stop([[maybe_unused]] int signal_number) {
 static bool stop_on(int signal_number) {
     struct sigaction action = {
             .sa_handler = request_stop,
-            .sa_flags =
-                    SA_RESTART, // a refresh or save under way finishes, and the sleep still wakes
+            .sa_flags = SA_RESTART, // a refresh or save under way finishes, unlike the sleep
     };
     if (sigemptyset(&action.sa_mask) != 0 || sigaction(signal_number, &action, nullptr) != 0) {
         log_error("can't handle signal %d: %s", signal_number, strerror(errno));
@@ -211,7 +210,7 @@ int main(int argc, char *argv[]) {
         if (panel.just_found) {
             wall.known = false; // it shows nothing of ours yet
         }
-        if (screen != nullptr && !panel.found) { // an upload clears it, so set it every tick
+        if (screen != nullptr && !panel.found) { // each upload clears it
             record = record_keep_error(record, "no panel");
         }
         const struct wanted wanted = {
