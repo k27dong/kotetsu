@@ -40,7 +40,7 @@ struct state { // what each module remembers between ticks
 
 struct inputs { // what one tick collected
     time_t now;
-    struct phrase phrase;
+    struct phrase_state phrase;
     const char *weather; // "weather fetched", "weather not due" or "weather failed"
     struct date date;
 };
@@ -63,15 +63,6 @@ struct outcome { // what output did with the frame
     bool refreshed;
     bool panel;         // a panel showed it; without one the wall just took the frame
     const char *upload; // "upload ok", "no upload" or "upload failed"
-};
-
-struct fetch { // the collect threads' arguments and results; each thread writes one field
-    const struct config *config;
-    struct phrase_state *phrase_state;
-    const struct weather_state *weather_state;
-    time_t now;
-    struct phrase phrase;
-    struct weather_fetched weather;
 };
 
 struct refresh_job {
@@ -117,66 +108,44 @@ static pthread_t start_thread(void *(*run)(void *), void *argument) {
     return thread;
 }
 
-static void *fetch_phrase(void *argument) {
-    struct fetch *fetch = argument;
-    fetch->phrase = phrase_fetch(fetch->phrase_state, fetch->config, fetch->now);
-    return nullptr;
-}
-
-static void *fetch_forecast(void *argument) {
-    struct fetch *fetch = argument;
-    fetch->weather.forecast = weather_fetch_forecast(fetch->weather_state, fetch->now);
-    return nullptr;
-}
-
-static void *fetch_air(void *argument) {
-    struct fetch *fetch = argument;
-    fetch->weather.air = weather_fetch_air();
-    return nullptr;
-}
-
-static void *fetch_warnings(void *argument) {
-    struct fetch *fetch = argument;
-    fetch->weather.warnings = warnings_fetch(fetch->now);
-    return nullptr;
-}
-
 static struct inputs collect(const struct config *config, struct state *state, time_t now) {
-    /* the dashboard every tick, and the three weather sources when they are due */
-    struct fetch fetch = {
-            .config = config,
-            .phrase_state = &state->phrase,
-            .weather_state = &state->weather,
-            .now = now,
+    /* fetch every source at once */
+    char url[sizeof config->dashboard_url + sizeof PHRASE_NOW_PATH];
+    snprintf(url, sizeof url, "%s" PHRASE_NOW_PATH, config->dashboard_url);
+    const struct http_request requests[] = {
+            {.url = url, .bearer = config->pi_key},
+            {.url = WEATHER_OPEN_METEO_URL},
+            {.url = WEATHER_AIR_QUALITY_URL},
+            {.url = WARNINGS_URL},
     };
-    void *(*const sources[])(void *) = {fetch_phrase, fetch_forecast, fetch_air, fetch_warnings};
-    const bool fetching_weather = weather_due(&state->weather, now);
-    const size_t count = fetching_weather ? sizeof sources / sizeof *sources : 1;
-    pthread_t threads[sizeof sources / sizeof *sources];
-    for (size_t i = 0; i < count; i++) {
-        threads[i] = start_thread(sources[i], &fetch);
-    }
-
-    /* the date, on this thread meanwhile */
-    struct inputs inputs = {.now = now, .weather = "weather not due", .date = date_for(now)};
-    for (size_t i = 0; i < count; i++) {
-        pthread_join(threads[i], nullptr);
-    }
+    const bool fetching_weather = now >= state->weather.next_fetch;
+    struct http_batch answers =
+            http_get_batch(requests, fetching_weather ? sizeof requests / sizeof *requests : 1);
 
     /* what the dashboard said */
-    inputs.phrase = fetch.phrase;
+    struct inputs inputs = {.now = now, .weather = "weather not due", .date = date_for(now)};
+    state->phrase = phrase_read(state->phrase, url, &answers.responses[0], now);
+    inputs.phrase = state->phrase;
     if (inputs.phrase.status != DASHBOARD_OK) {
         state->record = record_keep_error(state->record, dashboard_problem(inputs.phrase.status));
     }
 
-    /* what the weather sources said, kept for the next 30 minutes */
+    /* what the weather sources said */
     if (fetching_weather) {
-        weather_absorb(&state->weather, &fetch.weather, now);
-        inputs.weather = fetch.weather.forecast.ok ? "weather fetched" : "weather failed";
-        if (!fetch.weather.forecast.ok) {
+        struct forecast forecast = weather_read_open_meteo(&answers.responses[1], now);
+        if (weather_wants_met_norway(&state->weather, &forecast)) {
+            struct http_response met = http_get(WEATHER_MET_NORWAY_URL, nullptr);
+            forecast = weather_read_met_norway(&met, now);
+            http_response_free(&met);
+        }
+        state->weather = weather_update(state->weather, &forecast, &answers.responses[2],
+                                        &answers.responses[3], now);
+        inputs.weather = forecast.ok ? "weather fetched" : "weather failed";
+        if (!forecast.ok) {
             state->record = record_keep_error(state->record, "weather fetch failed");
         }
     }
+    http_batch_free(&answers);
     return inputs;
 }
 
@@ -189,7 +158,7 @@ static bool draw_frame(struct drawing *drawing, const struct inputs *inputs, str
     }
 
     /* the dashboard's phrase, or the glass's own until the dashboard has answered */
-    const struct phrase *phrase = &inputs->phrase;
+    const struct phrase_state *phrase = &inputs->phrase;
     const struct wall *wall = &state->wall;
     const int64_t wanted_id = phrase->have_answer ? phrase->answer.id : wall->phrase_id;
     const char *wanted_text = phrase->have_answer ? phrase->answer.text : wall->phrase_text;
