@@ -165,6 +165,7 @@ static bool is_header_chip(struct gpiod_chip *chip, const char *path) {
 }
 
 static struct gpiod_chip *open_header_chip(void) {
+    /* search the chips */
     glob_t paths = {};
     struct gpiod_chip *match = nullptr;
     if (glob(GPIO_CHIPS, 0, nullptr, &paths) == 0) {
@@ -179,6 +180,8 @@ static struct gpiod_chip *open_header_chip(void) {
             }
         }
     }
+
+    /* free the paths */
     globfree(&paths);
     if (match == nullptr) {
         log_error("no GPIO chip is labelled " HEADER_CHIP_LABEL);

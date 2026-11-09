@@ -38,7 +38,7 @@ static struct decision refresh_for(const struct wall *wall, const struct wanted 
         return (struct decision){REFRESH_FULL, REASON_FULL_REFRESH_ASKED};
     }
 
-    /* full for a new phrase */
+    /* new phrase and frame: full */
     const bool same_frame = frame_equal(&wall->frame, wanted->frame);
     const char *text = wanted->phrase_text != nullptr ? wanted->phrase_text : "";
     if (wanted->phrase_id != wall->phrase_id || strcmp(text, wall->phrase_text) != 0) {
@@ -46,7 +46,7 @@ static struct decision refresh_for(const struct wall *wall, const struct wanted 
                           : (struct decision){REFRESH_FULL, REASON_NEW_PHRASE};
     }
 
-    /* full for a new day */
+    /* new day and frame: full */
     if (!time_same_date(wanted->date, wall->date)) {
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_DAY};
