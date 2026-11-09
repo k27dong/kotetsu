@@ -74,21 +74,6 @@ struct forecast {
     struct weather_report report;
 };
 
-struct air {
-    bool ok;
-    int eaqi;
-};
-
-struct weather_fetched { // one thread fills each field
-    struct forecast forecast;
-    struct air air;
-    struct warnings warnings;
-};
-
-bool weather_due(const struct weather_state *state, time_t now);
-struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now);
-struct air weather_fetch_air(void);
-void weather_absorb(struct weather_state *state, const struct weather_fetched *fetched, time_t now);
 [[nodiscard]] struct forecast weather_read_open_meteo(const struct http_response *response,
                                                       time_t now);
 [[nodiscard]] struct forecast weather_read_met_norway(const struct http_response *response,

@@ -146,16 +146,6 @@ static struct warnings warnings_parse(const char *json, time_t now) {
     return warnings;
 }
 
-struct warnings warnings_fetch(time_t now) {
-    struct http_response answer = http_get_ok(WARNINGS_URL);
-    struct warnings warnings = {};
-    if (answer.ok) {
-        warnings = warnings_parse(answer.body, now);
-    }
-    http_response_free(&answer);
-    return warnings;
-}
-
 struct warnings warnings_read(const struct http_response *response, time_t now) {
     if (!http_ok(WARNINGS_URL, response)) {
         return (struct warnings){};
