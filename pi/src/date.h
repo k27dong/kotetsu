@@ -20,4 +20,4 @@ struct date {
     int counter_days; // since 2021-09-01, in Warsaw dates
 };
 
-struct date date_for(time_t now);
+[[nodiscard]] struct date date_for(time_t now);

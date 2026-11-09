@@ -51,7 +51,7 @@ static gchar *entry(const char *event, const char *level, const char *published)
     return g_strdup_printf("{\"id\":\"Sk20261028000000000\",\"nazwa_zdarzenia\":\"%s\","
                            "\"stopien\":\"%s\",\"obowiazuje_od\":\"2026-10-28 08:00:00\","
                            "\"obowiazuje_do\":\"2026-10-28 20:00:00\",\"opublikowano\":\"%s\","
-                           "\"teryt\":[\"1465\"]}",
+                           "\"teryt\":[\"1465\"]}", // Warsaw's county
                            event, level, published);
 }
 

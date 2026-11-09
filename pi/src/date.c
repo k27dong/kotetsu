@@ -139,10 +139,13 @@ static struct civil_date easter(int year) {
 }
 
 static const char *polish_holiday(struct civil_date date) {
+    /* fixed-date holidays */
     const char *fixed = name_on(POLISH_FIXED_HOLIDAYS, date.month, date.day);
     if (fixed != nullptr) {
         return fixed;
     }
+
+    /* Easter holidays */
     int days_after_easter = days_between(easter(date.year), date);
     for (const struct easter_holiday *holiday = POLISH_EASTER_HOLIDAYS; holiday->name != nullptr;
          holiday++) {
@@ -154,6 +157,7 @@ static const char *polish_holiday(struct civil_date date) {
 }
 
 static bool lunar_from_civil(struct civil_date date, struct lunar_date *out) {
+    /* find the lunar month */
     if (date.year < lunar_first_year || date.year > lunar_last_year) {
         return false;
     }
@@ -165,6 +169,8 @@ static bool lunar_from_civil(struct civil_date date, struct lunar_date *out) {
     if (month == nullptr) {
         return false;
     }
+
+    /* count the day */
     *out = (struct lunar_date){
             .month = month->month,
             .day = days_between(month->start, date) + 1,
@@ -188,6 +194,7 @@ static const char *solar_term_on(struct civil_date date) {
 }
 
 static const char *festival(struct civil_date date, struct lunar_date lunar, const char *term) {
+    /* lunar festivals and 除夕 */
     if (!lunar.leap) {
         const char *lunar_festival = name_on(LUNAR_FESTIVALS, lunar.month, lunar.day);
         if (lunar_festival != nullptr) {
@@ -200,9 +207,13 @@ static const char *festival(struct civil_date date, struct lunar_date lunar, con
             return "除夕";
         }
     }
+
+    /* 清明 and 冬至 */
     if (term != nullptr && (strcmp(term, "清明") == 0 || strcmp(term, "冬至") == 0)) {
         return term;
     }
+
+    /* Gregorian festivals */
     return name_on(GREGORIAN_FESTIVALS, date.month, date.day);
 }
 

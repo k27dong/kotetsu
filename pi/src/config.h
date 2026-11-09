@@ -25,4 +25,4 @@ struct config {
     char pi_key[PI_KEY_MAX_BYTES];
 };
 
-struct config config_load(void);
+[[nodiscard]] struct config config_load(void);

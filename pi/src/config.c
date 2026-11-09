@@ -83,7 +83,7 @@ static bool read_pi_key(char *out, size_t size) {
 }
 
 struct config config_load(void) {
-    /* key files need a dashboard */
+    /* a key file needs KOTETSU_DASHBOARD_URL */
     if (setting("KOTETSU_PI_KEY_FILE") != nullptr && setting("KOTETSU_DASHBOARD_URL") == nullptr) {
         log_error("set KOTETSU_DASHBOARD_URL: a run with KOTETSU_PI_KEY_FILE has no default "
                   "dashboard, so it can't replace the wall's picture by mistake");
