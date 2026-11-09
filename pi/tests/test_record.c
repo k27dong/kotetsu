@@ -80,11 +80,12 @@ static bool upload_answered(int status, struct record_state *state, const struct
     fake_server_start(&server, routes, G_N_ELEMENTS(routes));
     const struct config config = config_for(server.base);
     start_capture();
-    const bool uploaded = record_upload(state, &config, &glass_frame, report);
+    const struct upload_result upload = record_upload(&config, &glass_frame, report);
     finish_capture(captured, sizeof captured);
+    *state = record_after_upload(*state, &upload, report->too_long_id);
     TEST_ASSERT_EQUAL_size_t(1, fake_server_request_count(&server));
     fake_server_stop(&server);
-    return uploaded;
+    return upload.ok;
 }
 
 static void assert_upload_keeps(int status, const char *expected_error) {
@@ -102,14 +103,14 @@ static void assert_upload_keeps(int status, const char *expected_error) {
 static void test_error_is_kept_without_logging_it_again(void) {
     struct record_state state = {};
     start_capture();
-    record_error(&state, "panel refresh failed");
+    state = record_keep_error(state, "panel refresh failed");
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_EQUAL_STRING("", captured); // the caller logged it where it happened
     TEST_ASSERT_EQUAL_STRING("panel refresh failed", state.last_error);
 
     gchar *long_error = g_strnfill(300, 'e');
     start_capture();
-    record_error(&state, long_error);
+    state = record_keep_error(state, long_error);
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_EQUAL_size_t(sizeof state.last_error - 1, strlen(state.last_error));
     TEST_ASSERT_EQUAL_MEMORY(long_error, state.last_error, sizeof state.last_error - 1);
@@ -130,7 +131,7 @@ static void test_kept_error_keeps_whole_characters(void) {
         }
         struct record_state state = {};
         start_capture();
-        record_error(&state, text->str);
+        state = record_keep_error(state, text->str);
         finish_capture(captured, sizeof captured);
         TEST_ASSERT_EQUAL_size_t(kept_bytes[i], strlen(state.last_error));
         TEST_ASSERT_EQUAL_MEMORY(text->str, state.last_error, kept_bytes[i]);
@@ -244,9 +245,8 @@ static void test_upload_sends_screen_and_report_parts(void) {
     struct fake_server server;
     fake_server_start(&server, routes, G_N_ELEMENTS(routes));
     const struct config config = config_for(server.base);
-    struct record_state state = {};
     const struct report report = sample_report();
-    TEST_ASSERT_TRUE(record_upload(&state, &config, &glass_frame, &report));
+    TEST_ASSERT_TRUE(record_upload(&config, &glass_frame, &report).ok);
 
     TEST_ASSERT_EQUAL_size_t(1, fake_server_request_count(&server));
     fake_assert_request_line(&server, 0, "PUT /api/pi/screen HTTP/1.1");
@@ -290,9 +290,10 @@ static void test_failed_upload_keeps_error(void) {
     struct record_state state = {.reported_too_long_id = 3};
     const struct report report = sample_report();
     start_capture();
-    const bool uploaded = record_upload(&state, &config, &glass_frame, &report);
+    const struct upload_result upload = record_upload(&config, &glass_frame, &report);
     finish_capture(captured, sizeof captured);
-    TEST_ASSERT_FALSE(uploaded);
+    TEST_ASSERT_FALSE(upload.ok);
+    state = record_after_upload(state, &upload, report.too_long_id);
     TEST_ASSERT_EQUAL_STRING("upload failed: dashboard unreachable", state.last_error);
     TEST_ASSERT_EQUAL_INT64(3, state.reported_too_long_id);
     g_free(base);
@@ -307,12 +308,34 @@ static void test_successful_upload_clears_error(void) {
     struct fake_server server;
     fake_server_start(&server, routes, G_N_ELEMENTS(routes));
     const struct config config = config_for(server.base);
-    TEST_ASSERT_TRUE(record_upload(&state, &config, &glass_frame, &report));
+    const struct upload_result upload = record_upload(&config, &glass_frame, &report);
+    TEST_ASSERT_TRUE(upload.ok);
     assert_contains(fake_server_request(&server, 0),
                     ",\"lastError\":\"dashboard unreachable\"}\r\n");
+    state = record_after_upload(state, &upload, report.too_long_id);
     TEST_ASSERT_EQUAL_STRING("", state.last_error);
     TEST_ASSERT_EQUAL_INT64(9, state.reported_too_long_id);
     fake_server_stop(&server);
+}
+
+static void test_report_that_cant_be_built_keeps_error(void) {
+    const struct fake_route routes[] = {{"/api/pi/screen", 204, nullptr, 0}};
+    struct fake_server server;
+    fake_server_start(&server, routes, G_N_ELEMENTS(routes));
+    const struct config config = config_for(server.base);
+    const struct report none = {.refresh = REFRESH_NONE, .at = at(NOON), .too_long_id = 9};
+    start_capture();
+    const struct upload_result upload = record_upload(&config, &glass_frame, &none);
+    finish_capture(captured, sizeof captured);
+    TEST_ASSERT_FALSE(upload.ok);
+    TEST_ASSERT_EQUAL_size_t(0, fake_server_request_count(&server));
+    TEST_ASSERT_EQUAL_STRING("<3>a screen report needs the refresh that was done\n", captured);
+    fake_server_stop(&server);
+
+    const struct record_state kept = {.last_error = "no panel", .reported_too_long_id = 3};
+    const struct record_state after = record_after_upload(kept, &upload, none.too_long_id);
+    TEST_ASSERT_EQUAL_STRING("no panel", after.last_error);
+    TEST_ASSERT_EQUAL_INT64(3, after.reported_too_long_id);
 }
 
 static void test_upload_after_refresh(void) {
@@ -446,6 +469,7 @@ int main(void) {
     RUN_TEST(test_upload_sends_screen_and_report_parts);
     RUN_TEST(test_failed_upload_keeps_error);
     RUN_TEST(test_successful_upload_clears_error);
+    RUN_TEST(test_report_that_cant_be_built_keeps_error);
     RUN_TEST(test_upload_after_refresh);
     RUN_TEST(test_upload_new_too_long_when_glass_known);
     RUN_TEST(test_no_upload_for_reported_too_long);

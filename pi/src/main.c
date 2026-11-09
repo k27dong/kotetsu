@@ -83,11 +83,10 @@ struct refresh_job {
 };
 
 struct upload_job {
-    struct record_state *record;
     const struct config *config;
     const struct frame *frame;
     struct report report;
-    bool ok;
+    struct upload_result result;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -167,7 +166,7 @@ static struct inputs collect(const struct config *config, struct state *state, t
     /* what the dashboard said */
     inputs.phrase = fetch.phrase;
     if (inputs.phrase.status != DASHBOARD_OK) {
-        record_error(&state->record, dashboard_problem(inputs.phrase.status));
+        state->record = record_keep_error(state->record, dashboard_problem(inputs.phrase.status));
     }
 
     /* what the weather sources said, kept for the next 30 minutes */
@@ -175,7 +174,7 @@ static struct inputs collect(const struct config *config, struct state *state, t
         weather_absorb(&state->weather, &fetch.weather, now);
         inputs.weather = fetch.weather.forecast.ok ? "weather fetched" : "weather failed";
         if (!fetch.weather.forecast.ok) {
-            record_error(&state->record, "weather fetch failed");
+            state->record = record_keep_error(state->record, "weather fetch failed");
         }
     }
     return inputs;
@@ -185,7 +184,7 @@ static bool draw_frame(struct drawing *drawing, const struct inputs *inputs, str
                        struct drawn *out) {
     /* nothing is drawn without a date line */
     if (!inputs->date.ok) {
-        record_error(&state->record, "no date line for today");
+        state->record = record_keep_error(state->record, "no date line for today");
         return false;
     }
 
@@ -206,7 +205,7 @@ static bool draw_frame(struct drawing *drawing, const struct inputs *inputs, str
     };
     const struct draw_result result = draw(drawing, &input, &out->frame);
     if (!result.ok) {
-        record_error(&state->record, "drawing failed");
+        state->record = record_keep_error(state->record, "drawing failed");
         return false;
     }
 
@@ -246,7 +245,7 @@ static void *refresh_panel(void *argument) {
 
 static void *upload_frame(void *argument) {
     struct upload_job *job = argument;
-    job->ok = record_upload(job->record, job->config, job->frame, &job->report);
+    job->result = record_upload(job->config, job->frame, &job->report);
     return nullptr;
 }
 
@@ -257,8 +256,8 @@ static struct outcome output(struct screen *screen, const struct config *config,
     if (panel.just_found) {
         state->wall.known = false;
     }
-    if (screen != nullptr && !panel.found) {
-        record_error(&state->record, "no panel"); // an upload clears it, so set it every tick
+    if (screen != nullptr && !panel.found) { // an upload clears it, so set it every tick
+        state->record = record_keep_error(state->record, "no panel");
     }
 
     /* what the frame calls for */
@@ -288,7 +287,6 @@ static struct outcome output(struct screen *screen, const struct config *config,
             .last_error = state->record.last_error[0] != '\0' ? state->record.last_error : nullptr,
     };
     struct upload_job upload = {
-            .record = &state->record,
             .config = config,
             .frame = refreshing ? &drawn->frame : &wall->frame,
             .report = report,
@@ -315,12 +313,15 @@ static struct outcome output(struct screen *screen, const struct config *config,
     for (size_t i = 0; i < count; i++) {
         pthread_join(threads[i], nullptr);
     }
+    if (uploading) {
+        state->record = record_after_upload(state->record, &upload.result, report.too_long_id);
+    }
 
     /* what the wall holds now, saved once the panel shows it */
     state->wall = screen_note_refresh(
             state->wall, &wanted, (struct refresh_result){decision.kind, refresh.ok}, drawn->at);
     if (refreshing && !refresh.ok) {
-        record_error(&state->record, "panel refresh failed");
+        state->record = record_keep_error(state->record, "panel refresh failed");
     }
     if (refreshing && refresh.ok) {
         if (missing_glyphs_id != 0) {
@@ -328,16 +329,16 @@ static struct outcome output(struct screen *screen, const struct config *config,
                         drawn->missing_glyphs);
         }
         if (!state_save(config->state_path, &state->wall, &state->weather)) {
-            record_error(&state->record, "state save failed");
+            state->record = record_keep_error(state->record, "state save failed");
         }
     }
     return (struct outcome){
             .decision = decision,
             .refreshed = refreshing && refresh.ok,
             .panel = panel.found,
-            .upload = !uploading  ? "no upload"
-                      : upload.ok ? "upload ok"
-                                  : "upload failed",
+            .upload = !uploading         ? "no upload"
+                      : upload.result.ok ? "upload ok"
+                                         : "upload failed",
     };
 }
 

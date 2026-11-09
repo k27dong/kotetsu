@@ -14,7 +14,7 @@ struct record_state {
 };
 
 // keeps it for the next report; the caller has logged it where it happened
-void record_error(struct record_state *state, const char *text);
+[[nodiscard]] struct record_state record_keep_error(struct record_state record, const char *text);
 
 struct report { // 0 or nullptr means none
     enum refresh_kind refresh;
@@ -38,9 +38,18 @@ struct readings record_read_device(void);
                                       char *out, size_t size);
 bool record_should_upload(const struct record_state *state, bool refreshed, int64_t too_long_id,
                           bool glass_known);
+
+struct upload_result {
+    bool ok;
+    char error[128]; // what the next report says when the upload failed
+};
+
+[[nodiscard]] struct upload_result
+record_upload(const struct config *config, const struct frame *frame, const struct report *report);
 // a success clears the kept error and marks the too-long phrase reported
-[[nodiscard]] bool record_upload(struct record_state *state, const struct config *config,
-                                 const struct frame *frame, const struct report *report);
+[[nodiscard]] struct record_state record_after_upload(struct record_state record,
+                                                      const struct upload_result *upload,
+                                                      int64_t too_long_id);
 
 struct tick_summary {
     const char *dashboard; // "dashboard ok", or the problem

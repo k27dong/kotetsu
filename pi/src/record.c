@@ -39,9 +39,10 @@ static void keep_valid_utf8(char *text) {
     }
 }
 
-void record_error(struct record_state *state, const char *text) {
-    snprintf(state->last_error, sizeof state->last_error, "%s", text);
-    keep_valid_utf8(state->last_error); // the cut can split a character
+struct record_state record_keep_error(struct record_state record, const char *text) {
+    snprintf(record.last_error, sizeof record.last_error, "%s", text);
+    keep_valid_utf8(record.last_error); // the cut can split a character
+    return record;
 }
 
 struct readings record_read_device(void) {
@@ -147,18 +148,17 @@ bool record_should_upload(const struct record_state *state, bool refreshed, int6
            (too_long_id != 0 && too_long_id != state->reported_too_long_id && glass_known);
 }
 
-bool record_upload(struct record_state *state, const struct config *config,
-                   const struct frame *frame, const struct report *report) {
+struct upload_result record_upload(const struct config *config, const struct frame *frame,
+                                   const struct report *report) {
     /* the report, with how the Pi is doing, and the picture */
     const struct readings readings = record_read_device();
     char json[REPORT_JSON_BYTES];
     if (!record_report_json(report, &readings, json, sizeof json)) {
-        return false;
+        return (struct upload_result){};
     }
     const struct png png = frame_encode_png(frame);
     if (!png.ok) {
-        record_error(state, "PNG encoding failed");
-        return false;
+        return (struct upload_result){.error = "PNG encoding failed"};
     }
 
     /* put both on the dashboard */
@@ -183,16 +183,24 @@ bool record_upload(struct record_state *state, const struct config *config,
     }
     http_response_free(&response);
 
-    /* a stored screen clears the kept error; a failure becomes it */
-    if (stored) {
-        state->last_error[0] = '\0';
-        state->reported_too_long_id = report->too_long_id;
-    } else {
-        char error[sizeof state->last_error];
-        snprintf(error, sizeof error, "upload failed: %s", dashboard_problem(problem));
-        record_error(state, error);
+    /* say how it went */
+    struct upload_result result = {.ok = stored};
+    if (!stored) {
+        snprintf(result.error, sizeof result.error, "upload failed: %s",
+                 dashboard_problem(problem));
     }
-    return stored;
+    return result;
+}
+
+struct record_state record_after_upload(struct record_state record,
+                                        const struct upload_result *upload, int64_t too_long_id) {
+    if (upload->ok) {
+        record.last_error[0] = '\0';
+        record.reported_too_long_id = too_long_id;
+    } else if (upload->error[0] != '\0') { // a report that couldn't be built has no error to keep
+        record = record_keep_error(record, upload->error);
+    }
+    return record;
 }
 
 void record_log_tick(const struct tick_summary *tick) {
