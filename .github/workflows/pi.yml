@@ -32,7 +32,9 @@ jobs:
           echo "0df4009ac9dce6eb3b8cb4c4e90de67bb9745e8992a255c03a58dd5fe3f1e503  pi/fonts/LXGWWenKaiGBScreen.ttf" | sha256sum -c
           echo "9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e  Inter-4.1.zip" | sha256sum -c
           echo "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3  pi/fonts/Inter-SemiBold.ttf" | sha256sum -c
+      - name: Create a user without root rights
+        run: useradd --create-home ci && chown -R ci .
       - name: Build
-        run: make -C pi -j4
+        run: su ci -c 'make -C pi -j4'
       - name: Test
-        run: make -C pi test
+        run: su ci -c 'make -C pi test'
