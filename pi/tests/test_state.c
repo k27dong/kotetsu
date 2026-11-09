@@ -238,7 +238,9 @@ static void assert_ignored_with_one_warning(const char *state_path) {
 
 static void assert_ignored_because(const char *state_path, const char *reason) {
     assert_ignored_with_one_warning(state_path);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, reason), captured);
+    gchar *expected = g_strdup_printf("<4>ignoring the saved state %s: %s\n", state_path, reason);
+    TEST_ASSERT_EQUAL_STRING(expected, captured);
+    g_free(expected);
 }
 
 static void write_json_area(const char *area, size_t length) {

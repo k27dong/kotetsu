@@ -119,10 +119,11 @@ static bool is_intact(const char *path, const struct state_file *file, size_t le
     return true;
 }
 
-static const char *restore_json(const cJSON *root, struct saved_state *state) {
+static bool restore_json(const char *path, const cJSON *root, struct saved_state *state) {
     /* the glass phrase */
     if (!cJSON_IsObject(root)) {
-        return "its JSON isn't an object";
+        log_warning("ignoring the saved state %s: its JSON isn't an object", path);
+        return false;
     }
     int64_t phrase_id = 0;
     const char *phrase_text = "";
@@ -132,7 +133,8 @@ static const char *restore_json(const cJSON *root, struct saved_state *state) {
         if (!json_whole_number(json_member(root, "phraseId"), &phrase_id) || phrase_id < 1 ||
             length == 0 || length >= sizeof state->wall.phrase_text ||
             !text_is_valid_utf8(phrase_text, length)) {
-            return "its phrase is unusable";
+            log_warning("ignoring the saved state %s: its phrase is unusable", path);
+            return false;
         }
     }
 
@@ -140,12 +142,14 @@ static const char *restore_json(const cJSON *root, struct saved_state *state) {
     int64_t full_refresh = 0;
     const cJSON *saved_full_refresh = json_member(root, "fullRefresh");
     if (saved_full_refresh != nullptr && !json_whole_number(saved_full_refresh, &full_refresh)) {
-        return "its full refresh is unusable";
+        log_warning("ignoring the saved state %s: its full refresh is unusable", path);
+        return false;
     }
     int64_t cleanup_minute = 0;
     if (!json_whole_number(json_member(root, "cleanupMinute"), &cleanup_minute) ||
         cleanup_minute < 0 || cleanup_minute >= MINUTES_PER_DAY) {
-        return "its clean-up minute is unusable";
+        log_warning("ignoring the saved state %s: its clean-up minute is unusable", path);
+        return false;
     }
 
     /* the last weather report */
@@ -161,7 +165,8 @@ static const char *restore_json(const cJSON *root, struct saved_state *state) {
           json_whole_number(json_member(saved_weather, "lowC"), &low_c) &&
           json_whole_number(json_member(saved_weather, "highC"), &high_c) &&
           json_whole_number(json_member(saved_weather, "code"), &code))) {
-        return "its weather report is unusable";
+        log_warning("ignoring the saved state %s: its weather report is unusable", path);
+        return false;
     }
 
     /* all good, so keep them */
@@ -179,7 +184,7 @@ static const char *restore_json(const cJSON *root, struct saved_state *state) {
                 .code = (int)code,
         };
     }
-    return nullptr;
+    return true;
 }
 
 struct saved_state state_restore(const char *path) {
@@ -205,10 +210,9 @@ struct saved_state state_restore(const char *path) {
 
     /* JSON part, all or nothing */
     cJSON *root = cJSON_ParseWithLength(file.json, sizeof file.json);
-    const char *problem = restore_json(root, &saved);
+    const bool restored = restore_json(path, root, &saved);
     cJSON_Delete(root);
-    if (problem != nullptr) {
-        log_warning("ignoring the saved state %s: %s", path, problem);
+    if (!restored) {
         return saved;
     }
 
