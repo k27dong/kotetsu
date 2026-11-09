@@ -47,7 +47,6 @@ static struct warnings read_warnings(const char *json, time_t now) {
     return warnings;
 }
 
-// in force for Warsaw from 08:00 to 20:00 on 2026-10-28
 static gchar *entry(const char *event, const char *level, const char *published) {
     return g_strdup_printf("{\"id\":\"Sk20261028000000000\",\"nazwa_zdarzenia\":\"%s\","
                            "\"stopien\":\"%s\",\"obowiazuje_od\":\"2026-10-28 08:00:00\","

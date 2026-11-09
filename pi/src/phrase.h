@@ -41,5 +41,6 @@ struct phrase_state {
     struct civil_date answered_on;
 };
 
+// url only labels the log line of a non-200 answer
 [[nodiscard]] struct phrase_state phrase_read(struct phrase_state previous, const char *url,
                                               const struct http_response *response, time_t now);

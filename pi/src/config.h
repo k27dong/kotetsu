@@ -18,8 +18,7 @@ static constexpr size_t PHRASE_TEXT_MAX_BYTES = 2048;
 static constexpr size_t PI_KEY_MAX_BYTES = 256;
 
 struct config {
-    bool ok; // false when the key can't be read, a value is too long or a key file comes without
-             // a dashboard URL
+    bool ok;
     char dashboard_url[256];
     char state_path[256];
     char font_dir[256];

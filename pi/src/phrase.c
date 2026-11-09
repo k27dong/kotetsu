@@ -1,3 +1,4 @@
+/* the phrase: the dashboard's answer, read and kept */
 #include "phrase.h"
 
 #include <inttypes.h>
@@ -49,7 +50,7 @@ static bool read_text(const cJSON *item, const char *what, char *out, size_t siz
 }
 
 static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
-    /* the phrase: a positive id, its text and when it stops being shown */
+    /* read the phrase */
     if (!cJSON_IsObject(root)) {
         log_error("the dashboard's answer isn't a JSON object");
         return false;
@@ -72,7 +73,7 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
         return false;
     }
 
-    /* the greeting: null, or one of the six icons with its text */
+    /* read the greeting */
     const cJSON *greeting = json_member(root, "greeting");
     if (cJSON_IsObject(greeting)) {
         const char *icon = cJSON_GetStringValue(json_member(greeting, "icon"));
@@ -100,7 +101,7 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
         return false;
     }
 
-    /* the full-refresh request: null, or a positive id */
+    /* read the full-refresh request */
     const cJSON *full_refresh = json_member(root, "full_refresh");
     if (cJSON_IsNumber(full_refresh)) {
         if (!read_id(full_refresh, &answer->full_refresh)) {
@@ -112,7 +113,7 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
         return false;
     }
 
-    /* the clean-up minute of the Warsaw day */
+    /* read the clean-up minute */
     int64_t cleanup_minute = 0;
     if (!json_whole_number(json_member(root, "cleanupMinute"), &cleanup_minute) ||
         cleanup_minute < 0 || cleanup_minute >= MINUTES_PER_DAY) {
@@ -123,34 +124,23 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
     return true;
 }
 
-[[nodiscard]] static enum dashboard_status phrase_parse(const char *json,
-                                                        struct phrase_answer *out) {
-    cJSON *root = cJSON_Parse(json);
-    struct phrase_answer answer = {};
-    const bool good = read_answer(root, &answer);
-    cJSON_Delete(root);
-    if (!good) {
-        return DASHBOARD_BAD_RESPONSE;
-    }
-    *out = answer;
-    return DASHBOARD_OK;
-}
-
 struct phrase_state phrase_read(struct phrase_state previous, const char *url,
                                 const struct http_response *response, time_t now) {
     /* read the answer */
     struct phrase_answer answer = {};
     enum dashboard_status status = DASHBOARD_UNREACHABLE;
     if (response->ok && response->status == HTTP_OK) {
-        status = phrase_parse(response->body, &answer);
+        cJSON *root = cJSON_Parse(response->body);
+        status = read_answer(root, &answer) ? DASHBOARD_OK : DASHBOARD_BAD_RESPONSE;
+        cJSON_Delete(root);
     } else if (response->ok) {
         status = dashboard_log_answer(url, response);
-        if (response->status == 503) { // the dashboard's own answer when it has nothing to show
+        if (response->status == 503) { // the dashboard's own answer for nothing to show
             status = DASHBOARD_NO_PHRASE;
         }
     }
 
-    /* keep a good answer */
+    /* keep the status and answer */
     const struct civil_date today = time_warsaw_date(now);
     struct phrase_state state = previous;
     state.status = status;
