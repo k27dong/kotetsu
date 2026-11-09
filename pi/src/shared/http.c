@@ -171,14 +171,8 @@ struct http_batch http_get_batch(const struct http_request *requests, size_t cou
     /* add one transfer per request */
     struct http_batch batch = {.count = count};
     CURLM *multi = curl_multi_init();
-    bool ready = multi != nullptr;
-#if CURL_AT_LEAST_VERSION(8, 20, 0)
-    ready = ready &&
-            curl_multi_setopt(multi, CURLMOPT_QUICK_EXIT, 1L) == CURLM_OK; // don't wait on hung DNS
-#endif
-    if (!ready) {
+    if (multi == nullptr) {
         log_error("can't set up the requests");
-        curl_multi_cleanup(multi);
         return batch;
     }
     struct transfer transfers[HTTP_BATCH_MAX] = {};
