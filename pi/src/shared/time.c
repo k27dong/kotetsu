@@ -12,6 +12,8 @@
 #define TIMESYNC_DIRECTORY    "/run/systemd/timesync"
 #define TIMESYNC_SYNCHRONIZED TIMESYNC_DIRECTORY "/synchronized"
 
+static constexpr long NANOSECONDS_PER_SECOND = 1'000'000'000;
+
 static struct tm warsaw_time(time_t now) {
     struct tm local;
     if (localtime_r(&now, &local) == nullptr) {
@@ -156,4 +158,19 @@ bool time_clock_synced(void) {
     }
     log_error("can't tell whether the clock is synchronised: %s", strerror(errno));
     return false;
+}
+
+struct timespec time_left_in_tick(struct timespec started, struct timespec now, int tick_seconds) {
+    struct timespec left = {
+            .tv_sec = started.tv_sec + tick_seconds - now.tv_sec,
+            .tv_nsec = started.tv_nsec - now.tv_nsec,
+    };
+    if (left.tv_nsec < 0) {
+        left.tv_sec -= 1;
+        left.tv_nsec += NANOSECONDS_PER_SECOND;
+    }
+    if (left.tv_sec < 0) {
+        return (struct timespec){};
+    }
+    return left;
 }
