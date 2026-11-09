@@ -22,8 +22,8 @@ struct screen {
     bool panel;
 };
 
-void screen_wall_init(struct wall *wall) {
-    *wall = (struct wall){.cleanup_minute = CLEANUP_MINUTE_DEFAULT};
+struct wall screen_new_wall(void) {
+    return (struct wall){.cleanup_minute = CLEANUP_MINUTE_DEFAULT};
 }
 
 static struct decision refresh_for(const struct wall *wall, const struct wanted *wanted) {
@@ -62,88 +62,108 @@ static struct decision refresh_for(const struct wall *wall, const struct wanted 
                    : (struct decision){REFRESH_FULL, REASON_CHANGE};
 }
 
-struct decision screen_decide(struct wall *wall, const struct wanted *wanted, time_t now) {
-    /* a last refresh in the future means the clock went back: the wait starts from now */
-    if (wall->last_refresh > now) {
-        wall->last_refresh = now;
+static struct wall wall_at_tick(struct wall wall, const struct wanted *wanted, time_t now) {
+    /* clamp a future refresh */
+    if (wall.last_refresh > now) {
+        wall.last_refresh = now; // the clock went back
     }
 
-    /* clean-up becomes due when two ticks on one day straddle the clean-up minute */
-    wall->cleanup_minute = wanted->cleanup_minute;
-    if (wall->last_tick != 0 &&
-        time_same_date(time_warsaw_date(wall->last_tick), time_warsaw_date(now)) &&
-        time_warsaw_minute_of_day(wall->last_tick) < wall->cleanup_minute &&
-        time_warsaw_minute_of_day(now) >= wall->cleanup_minute) {
-        wall->cleanup_due = true;
+    /* note a clean-up crossing */
+    wall.cleanup_minute = wanted->cleanup_minute;
+    if (wall.last_tick != 0 &&
+        time_same_date(time_warsaw_date(wall.last_tick), time_warsaw_date(now)) &&
+        time_warsaw_minute_of_day(wall.last_tick) < wall.cleanup_minute &&
+        time_warsaw_minute_of_day(now) >= wall.cleanup_minute) {
+        wall.cleanup_due = true;
     }
-    wall->last_tick = now;
+    wall.last_tick = now;
+    return wall;
+}
 
-    /* what the frame calls for; a clean-up with nothing to clean is over */
-    const struct decision decision = refresh_for(wall, wanted);
+struct decision screen_decide(const struct wall *wall, const struct wanted *wanted, time_t now) {
+    /* see what the frame needs */
+    const struct wall ticked = wall_at_tick(*wall, wanted, now);
+    const struct decision decision = refresh_for(&ticked, wanted);
     if (decision.kind == REFRESH_NONE) {
-        if (decision.reason == REASON_CLEANUP) {
-            wall->cleanup_due = false;
-        }
         return decision;
     }
 
-    /* a new day waits up to 60 s for the dashboard, so the greeting comes with the date */
-    if (decision.reason == REASON_NEW_DAY && !wanted->answered_today) {
-        if (wall->greeting_wait_since == 0 || wall->greeting_wait_since > now) {
-            wall->greeting_wait_since = now;
-        }
-        if (now - wall->greeting_wait_since < GREETING_WAIT_SECONDS) {
-            return (struct decision){REFRESH_NONE, REASON_GREETING_WAIT};
-        }
+    /* wait for the greeting */
+    const time_t since = ticked.greeting_wait_since;
+    if (decision.reason == REASON_NEW_DAY && !wanted->answered_today &&
+        (since == 0 || now - since < GREETING_WAIT_SECONDS)) { // even with a start in the future
+        return (struct decision){REFRESH_NONE, REASON_GREETING_WAIT};
     }
 
-    /* never two refreshes within 180 s */
-    if (now - wall->last_refresh < REFRESH_GAP_SECONDS) {
+    /* keep 180 s between refreshes */
+    if (now - ticked.last_refresh < REFRESH_GAP_SECONDS) {
         return (struct decision){REFRESH_NONE, REASON_TOO_SOON};
     }
     return decision;
 }
 
-void screen_record(struct wall *wall, const struct wanted *wanted, struct refresh_result result,
-                   time_t now) {
-    if (result.kind == REFRESH_NONE) {
-        return;
+struct wall screen_note_tick(struct wall wall, const struct wanted *wanted,
+                             struct decision decision, time_t now) {
+    /* do this tick's bookkeeping */
+    wall = wall_at_tick(wall, wanted, now);
+
+    /* start the greeting wait */
+    const time_t since = wall.greeting_wait_since;
+    if (decision.reason == REASON_GREETING_WAIT &&
+        (since == 0 || since > now)) { // a start in the future means the clock went back
+        wall.greeting_wait_since = now;
     }
 
-    /* after a failure the panel's memory is unknown, and the retry waits the gap too */
+    /* end a needless clean-up */
+    if (decision.kind == REFRESH_NONE && decision.reason == REASON_CLEANUP) {
+        wall.cleanup_due = false;
+    }
+    return wall;
+}
+
+struct wall screen_note_refresh(struct wall wall, const struct wanted *wanted,
+                                struct refresh_result result, time_t now) {
+    if (result.kind == REFRESH_NONE) {
+        return wall;
+    }
+
+    /* forget the glass on failure */
     if (!result.ok) {
-        wall->known = false;
-        wall->last_refresh = now;
-        return;
+        wall.known = false;
+        wall.last_refresh = now; // the retry waits the gap too
+        return wall;
     }
 
     /* the history */
-    wall->partials_since_full = result.kind == REFRESH_PARTIAL ? wall->partials_since_full + 1 : 0;
-    wall->last_kind = result.kind;
-    wall->last_refresh = now;
+    wall.partials_since_full = result.kind == REFRESH_PARTIAL ? wall.partials_since_full + 1 : 0;
+    wall.last_kind = result.kind;
+    wall.last_refresh = now;
 
-    /* what is on the glass now */
+    /* note what the glass shows */
     const char *text = wanted->phrase_text != nullptr ? wanted->phrase_text : "";
     const size_t length = strlen(text);
-    if (length >= sizeof wall->phrase_text) {
+    if (length >= sizeof wall.phrase_text) {
         log_error("the drawn phrase is %zu bytes; the wall holds %zu", length,
-                  sizeof wall->phrase_text - 1);
+                  sizeof wall.phrase_text - 1);
         abort();
     }
-    wall->known = true;
-    wall->frame = *wanted->frame;
-    wall->phrase_id = wanted->phrase_id;
-    memcpy(wall->phrase_text, text, length + 1);
-    wall->date = wanted->date;
+    wall.known = true;
+    wall.frame = *wanted->frame;
+    wall.phrase_id = wanted->phrase_id;
+    memcpy(wall.phrase_text, text, length + 1);
+    wall.date = wanted->date;
 
-    /* a full refresh settles the clean-up and the dashboard's request */
+    /* mark clean-up and request done */
     if (result.kind == REFRESH_FULL) {
-        wall->cleanup_due = false;
+        wall.cleanup_due = false;
         if (wanted->full_refresh != 0) {
-            wall->full_refresh_done = wanted->full_refresh;
+            wall.full_refresh_done = wanted->full_refresh;
         }
     }
-    wall->greeting_wait_since = 0;
+
+    /* end the greeting wait */
+    wall.greeting_wait_since = 0;
+    return wall;
 }
 
 const char *screen_reason_text(enum refresh_reason reason) {

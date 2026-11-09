@@ -213,7 +213,7 @@ static const char *restore_json(const cJSON *root, struct wall *wall,
 
 bool record_restore(const char *path, struct wall *wall, struct weather_state *weather) {
     /* start as on a first run, so a bad file leaves nothing behind */
-    screen_wall_init(wall);
+    *wall = screen_new_wall();
 
     /* read the file, which doesn't exist before the first save */
     struct state_file file;
