@@ -31,8 +31,8 @@ WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvl
            -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough -Werror
 # Library headers come in with -isystem, so warnings inside them can't stop the build.
 LIB_CFLAGS := $(patsubst -I%,-isystem %,$(shell pkg-config --cflags $(LIBS)))
-ALL_CFLAGS = -std=c23 -D_DEFAULT_SOURCE -pthread -O2 -g -Isrc -DKOTETSU_VERSION='"$(VERSION)"' $(WARNINGS) $(HARDENING) \
-             $(LIB_CFLAGS) $(CFLAGS)
+ALL_CFLAGS = -std=c23 -D_DEFAULT_SOURCE -pthread -O2 -g -Isrc $(WARNINGS) $(HARDENING) \
+             -DKOTETSU_VERSION='"$(VERSION)"' $(LIB_CFLAGS) $(CFLAGS)
 LDLIBS := $(shell pkg-config --libs $(LIBS))
 
 OBJ = $(SRC:src/%.c=build/%.o)
