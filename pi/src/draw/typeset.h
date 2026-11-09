@@ -26,5 +26,5 @@ double typeset_snap(double value);
 PangoContext *typeset_context(PangoFontMap *fonts, cairo_t *cr);
 PangoLayout *typeset_line(PangoContext *context, struct text_style style, const char *text);
 void typeset_show(cairo_t *cr, PangoLayout *layout, double x, double baseline);
-struct phrase_fit typeset_phrase(PangoContext *context, cairo_t *cr,
-                                 const char *text); // draws only when it fits
+// draws at the largest size that fits, or not at all
+struct phrase_fit typeset_phrase(PangoContext *context, cairo_t *cr, const char *text);

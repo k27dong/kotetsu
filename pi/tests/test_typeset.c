@@ -70,7 +70,6 @@ static int ink_height(const struct ink_box box) {
     return box.found ? box.bottom - box.top + 1 : 0;
 }
 
-// The lines of a drawn phrase: each run of rows with ink, top to bottom, with its ink box.
 static int ink_bands(const struct frame *frame, struct ink_box *bands) {
     int count = 0;
     bool inside = false;
@@ -119,7 +118,6 @@ static struct phrase_fit render_phrase(const char *text, struct frame *out) {
     return fit;
 }
 
-// One line of the phrase font at a size, drawn alone through the same pipeline.
 static struct ink_box line_ink(const char *text, double size) {
     cairo_surface_t *surface;
     cairo_t *cr;
@@ -130,11 +128,10 @@ static struct ink_box line_ink(const char *text, double size) {
     typeset_show(cr, layout, PHRASE_LEFT, 240);
     g_object_unref(layout);
     struct frame frame;
-    frame_of(surface, cr, context, &frame);
+    frame_of(surface, cr, context, &frame); // the ink that survives the half-coverage cut
     return ink_anywhere(&frame);
 }
 
-// A band holds exactly this text at this size: the ink is as wide and as tall as the line alone.
 static void assert_line(struct ink_box band, const char *text, double size) {
     const struct ink_box reference = line_ink(text, size);
     TEST_ASSERT_TRUE_MESSAGE(reference.found, text);
@@ -307,7 +304,6 @@ static void test_digit_gap_is_quarter_em(void) {
     drop_scratch(context, surface, cr);
 }
 
-// The gaps are what the line is wider than its digit and non-digit stretches laid out alone.
 static int gaps_in(PangoContext *context, const char *text) {
     int stretches = 0;
     for (const char *cursor = text; *cursor != '\0';) {
@@ -321,7 +317,7 @@ static int gaps_in(PangoContext *context, const char *text) {
         g_free(stretch);
     }
     const int gap = (int)(BIG_LABEL.size_px / 4 * PANGO_SCALE);
-    const int extra = advance_units(context, BIG_LABEL, text) - stretches;
+    const int extra = advance_units(context, BIG_LABEL, text) - stretches; // what the gaps add
     TEST_ASSERT_INT_WITHIN_MESSAGE(PANGO_SCALE / 2, (extra + gap / 2) / gap * gap, extra, text);
     return (extra + gap / 2) / gap;
 }

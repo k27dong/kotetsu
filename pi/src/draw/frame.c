@@ -1,3 +1,4 @@
+/* the frame: the screen at one bit a pixel, and its PNG */
 #include "draw/frame.h"
 
 #include <stdckdint.h>
