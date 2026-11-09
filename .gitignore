@@ -1,7 +1,6 @@
 pi/build*/
 pi/fonts/
-pi/compile_commands.json
-pi/.cache/
+pi/compile_flags.txt
 dashboard/node_modules/
 dashboard/.wrangler/
 dashboard/dist/
