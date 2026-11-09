@@ -1,3 +1,4 @@
+/* the panel's command sequences, as steps for the board to send */
 #include "screen/epd.h"
 
 #include <stddef.h>
@@ -74,12 +75,12 @@ struct epd_steps epd_refresh_steps(const struct frame *on_glass, const struct fr
     const bool full = kind == REFRESH_FULL;
     struct epd_steps steps = {};
 
-    /* wake the controller with a hardware reset, then a software reset */
+    /* wake the controller */
     add_reset(&steps);
     add_command(&steps, SOFTWARE_RESET, nullptr, 0);
     add(&steps, (struct epd_step){.kind = EPD_WAIT_IDLE});
 
-    /* set it up for an 800 × 480 frame written top-down */
+    /* set up the controller */
     add_command(&steps, TEMPERATURE_SENSOR, INTERNAL_SENSOR, sizeof INTERNAL_SENSOR);
     add_command(&steps, BOOSTER_SOFT_START, SOFT_START_PHASES, sizeof SOFT_START_PHASES);
     add_command(&steps, DRIVER_OUTPUT_CONTROL, GATES_480, sizeof GATES_480);
@@ -90,11 +91,11 @@ struct epd_steps epd_refresh_steps(const struct frame *on_glass, const struct fr
     add_command(&steps, RAM_X_COUNTER, X_COUNTER_START, sizeof X_COUNTER_START);
     add_command(&steps, RAM_Y_COUNTER, Y_COUNTER_START, sizeof Y_COUNTER_START);
 
-    /* both RAMs: what is on the glass, then what comes next */
+    /* write both frames */
     add_command(&steps, WRITE_GLASS_FRAME, on_glass->bits, FRAME_BYTES);
     add_command(&steps, WRITE_NEXT_FRAME, next->bits, FRAME_BYTES);
 
-    /* run the update, then put the controller to sleep */
+    /* update, then deep sleep */
     add_command(&steps, DISPLAY_UPDATE_CONTROL_1,
                 full ? UPDATE_CONTROL_FULL : UPDATE_CONTROL_PARTIAL, sizeof UPDATE_CONTROL_FULL);
     add_command(&steps, DISPLAY_UPDATE_CONTROL_2,
@@ -103,10 +104,6 @@ struct epd_steps epd_refresh_steps(const struct frame *on_glass, const struct fr
     add(&steps, (struct epd_step){.kind = EPD_WAIT_IDLE});
     add_command(&steps, DEEP_SLEEP, SLEEP_MODE_2_RAM_LOST, sizeof SLEEP_MODE_2_RAM_LOST);
     return steps;
-}
-
-struct epd_steps epd_clear_steps(const struct frame *white) {
-    return epd_refresh_steps(white, white, REFRESH_FULL);
 }
 
 struct epd_steps epd_sleep_steps(void) {

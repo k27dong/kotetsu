@@ -1,3 +1,4 @@
+/* no panel driver off Linux: the board never opens */
 #include <stdlib.h>
 
 #include "screen/board.h"
@@ -14,7 +15,7 @@ bool board_run([[maybe_unused]] struct board *board,
     abort();
 }
 
-int board_read_busy([[maybe_unused]] struct board *board) {
+struct busy_reading board_read_busy([[maybe_unused]] struct board *board) {
     log_error("this build has no panel driver");
     abort();
 }

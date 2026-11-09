@@ -163,7 +163,7 @@ static void test_cleanup_crossing_without_partial_clears_due(void) {
     struct wanted wanted = as_on_glass();
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
                     tick(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
-    wanted.frame = &other_frame; // the change waits a tick: nothing to clean, so no partial either
+    wanted.frame = &other_frame; // the change waits for the next tick
     assert_decision(REFRESH_NONE, REASON_CLEANUP,
                     tick(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
     TEST_ASSERT_FALSE(wall.cleanup_due);
@@ -441,7 +441,6 @@ static void test_no_panel_on_this_machine(void) {
 #ifdef __linux__
     TEST_IGNORE_MESSAGE("the panel on the Pi is live, so screen_open is never called here");
 #else
-    // without a board nothing is looked for again, and there is nothing to clear
     char captured[256];
     start_capture();
     struct screen *screen = screen_open();

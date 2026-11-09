@@ -6,7 +6,6 @@
 #include "draw/frame.h"
 #include "screen/screen.h"
 
-// what to send; board_linux.c sends it
 enum epd_step_kind {
     EPD_RESET,
     EPD_COMMAND,
@@ -25,6 +24,7 @@ struct epd_step {
 
 static constexpr size_t EPD_STEPS_MAX = 64;
 
+// a panel sequence, for the board to send
 struct epd_steps {
     size_t count;
     struct epd_step steps[EPD_STEPS_MAX];
@@ -32,5 +32,4 @@ struct epd_steps {
 
 struct epd_steps epd_refresh_steps(const struct frame *on_glass, const struct frame *next,
                                    enum refresh_kind kind);
-struct epd_steps epd_clear_steps(const struct frame *white);
 struct epd_steps epd_sleep_steps(void);
