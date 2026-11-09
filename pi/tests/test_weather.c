@@ -5,12 +5,20 @@
 
 #include <glib.h>
 
+#include "shared/http.h"
 #include "shared/time.h"
 #include "stderr_capture.h"
 #include "unity.h"
 #include "weather.h"
 
-#define NOON "2026-10-28T12:00:00+01:00"
+#define NOON      "2026-10-28T12:00:00+01:00"
+#define NO_ANSWER nullptr
+#define AIR_75    "{\"current\":{\"european_aqi\":75}}"
+#define WIND_WARNING                                                                          \
+    "[{\"id\":\"Sk20261028000000000\",\"nazwa_zdarzenia\":\"Silny wiatr\",\"stopien\":\"1\"," \
+    "\"obowiazuje_od\":\"2026-10-28 08:00:00\",\"obowiazuje_do\":\"2026-10-28 20:00:00\","    \
+    "\"opublikowano\":\"2026-10-28 06:00:00\",\"teryt\":[\"1465\"]}]"
+#define NO_WARNINGS "{\"message\":\"Brak ostrzeżeń meteorologicznych\"}"
 
 static constexpr time_t FETCH_PERIOD_SECONDS = 30 * SECONDS_PER_MINUTE;
 static constexpr time_t STALE_AFTER_SECONDS = 2 * SECONDS_PER_HOUR;
@@ -63,6 +71,49 @@ static gchar *fixture(const char *name) {
     return contents;
 }
 
+static struct http_response answer(const char *body) {
+    if (body == NO_ANSWER) {
+        return (struct http_response){};
+    }
+    char *copy = strdup(body);
+    TEST_ASSERT_NOT_NULL(copy);
+    return (struct http_response){
+            .ok = true, .status = HTTP_OK, .body = copy, .length = strlen(copy)};
+}
+
+static struct forecast read_open_meteo(const char *json, time_t now) {
+    struct http_response response = answer(json);
+    const struct forecast forecast = weather_read_open_meteo(&response, now);
+    http_response_free(&response);
+    return forecast;
+}
+
+static struct forecast read_met_norway(const char *json, time_t now) {
+    struct http_response response = answer(json);
+    const struct forecast forecast = weather_read_met_norway(&response, now);
+    http_response_free(&response);
+    return forecast;
+}
+
+static struct forecast forecast_at(time_t now) {
+    gchar *json = fixture("open_meteo_forecast.json");
+    const struct forecast forecast = read_open_meteo(json, now);
+    TEST_ASSERT_TRUE(forecast.ok);
+    g_free(json);
+    return forecast;
+}
+
+static struct weather_state update(struct weather_state previous, const struct forecast *forecast,
+                                   const char *air, const char *warnings, time_t now) {
+    struct http_response air_answer = answer(air);
+    struct http_response warnings_answer = answer(warnings);
+    const struct weather_state state =
+            weather_update(previous, forecast, &air_answer, &warnings_answer, now);
+    http_response_free(&warnings_answer);
+    http_response_free(&air_answer);
+    return state;
+}
+
 static gchar *open_meteo_json(int now_code, const struct hour *hours, size_t count) {
     GString *times = g_string_new(nullptr);
     GString *codes = g_string_new(nullptr);
@@ -83,10 +134,9 @@ static gchar *open_meteo_json(int now_code, const struct hour *hours, size_t cou
 static void assert_open_meteo_codes(const struct word_case *cases, size_t count) {
     for (size_t i = 0; i < count; i++) {
         gchar *json = open_meteo_json(cases[i].now_code, &cases[i].hour, 1);
-        struct weather_report report = {};
-        TEST_ASSERT_TRUE_MESSAGE(weather_parse_open_meteo(json, at(cases[i].fetched), &report),
-                                 cases[i].name);
-        TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].expected, report.code, cases[i].name);
+        const struct forecast forecast = read_open_meteo(json, at(cases[i].fetched));
+        TEST_ASSERT_TRUE_MESSAGE(forecast.ok, cases[i].name);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].expected, forecast.report.code, cases[i].name);
         g_free(json);
     }
 }
@@ -198,9 +248,10 @@ static void test_code_without_word_is_unavailable(void) {
 static void test_parse_open_meteo(void) {
     gchar *json = fixture("open_meteo_forecast.json");
     const time_t fetched = at("2026-10-28T15:14:18Z");
-    struct weather_report report = {};
-    TEST_ASSERT_TRUE(weather_parse_open_meteo(json, fetched, &report));
-    assert_report((struct weather_report){fetched, 11, 3, 12, 3}, report);
+    const struct forecast forecast = read_open_meteo(json, fetched);
+    TEST_ASSERT_TRUE(forecast.ok);
+    TEST_ASSERT_FALSE(forecast.from_met);
+    assert_report((struct weather_report){fetched, 11, 3, 12, 3}, forecast.report);
     g_free(json);
 }
 
@@ -228,9 +279,7 @@ static void test_parse_open_meteo_rejects_missing_values(void) {
             "\"daily\":{\"temperature_2m_max\":[12.2],\"temperature_2m_min\":[3.0]}}",
     };
     for (size_t i = 0; i < G_N_ELEMENTS(broken); i++) {
-        struct weather_report report = {.code = 77};
-        TEST_ASSERT_FALSE_MESSAGE(weather_parse_open_meteo(broken[i], 0, &report), broken[i]);
-        TEST_ASSERT_EQUAL_INT(77, report.code);
+        TEST_ASSERT_FALSE_MESSAGE(read_open_meteo(broken[i], 0).ok, broken[i]);
     }
 }
 
@@ -241,8 +290,10 @@ static void assert_current_temperature_shows(const char *current, const char *ex
                                   "\"temperature_2m_min\":[-3.0]}}",
                                   current);
     const time_t noon = at(NOON);
-    struct weather_state state = {.have_report = true, .eaqi = -1};
-    TEST_ASSERT_TRUE_MESSAGE(weather_parse_open_meteo(json, noon, &state.report), current);
+    const struct forecast forecast = read_open_meteo(json, noon);
+    TEST_ASSERT_TRUE_MESSAGE(forecast.ok, current);
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &forecast, NO_ANSWER, NO_ANSWER, noon);
     const struct weather_view view = weather_view(&state, noon);
     TEST_ASSERT_EQUAL_STRING_MESSAGE(expected, view.temperature, current);
     g_free(json);
@@ -256,37 +307,40 @@ static void test_negative_temperatures_round_away_from_zero(void) {
 
 static void test_parse_met_norway(void) {
     gchar *json = fixture("met_norway_compact.json");
-    struct weather_report report = {};
     const time_t afternoon = at("2026-10-28T15:14:18Z");
-    TEST_ASSERT_TRUE(weather_parse_met_norway(json, afternoon, &report));
-    assert_report((struct weather_report){afternoon, 11, 9, 12, 3}, report);
+    struct forecast forecast = read_met_norway(json, afternoon);
+    TEST_ASSERT_TRUE(forecast.ok);
+    TEST_ASSERT_TRUE(forecast.from_met);
+    assert_report((struct weather_report){afternoon, 11, 9, 12, 3}, forecast.report);
     const time_t foggy_morning = at("2026-10-29T07:30:00+01:00");
-    TEST_ASSERT_TRUE(weather_parse_met_norway(json, foggy_morning, &report));
-    assert_report((struct weather_report){foggy_morning, 7, 7, 12, 45}, report);
+    forecast = read_met_norway(json, foggy_morning);
+    TEST_ASSERT_TRUE(forecast.ok);
+    assert_report((struct weather_report){foggy_morning, 7, 7, 12, 45}, forecast.report);
     const time_t midnight = at("2026-10-30T00:10:00+01:00");
-    TEST_ASSERT_TRUE(weather_parse_met_norway(json, midnight, &report));
-    assert_report((struct weather_report){midnight, 9, 9, 9, 3}, report);
-    report.code = 77;
-    TEST_ASSERT_FALSE(weather_parse_met_norway(json, at("2026-11-05T12:00:00+01:00"), &report));
-    TEST_ASSERT_EQUAL_INT(77, report.code);
+    forecast = read_met_norway(json, midnight);
+    TEST_ASSERT_TRUE(forecast.ok);
+    assert_report((struct weather_report){midnight, 9, 9, 9, 3}, forecast.report);
+    TEST_ASSERT_FALSE(read_met_norway(json, at("2026-11-05T12:00:00+01:00")).ok);
     g_free(json);
 }
 
 static void test_open_meteo_word_is_the_weather_now_not_tonights_fog(void) {
     gchar *json = fixture("open_meteo_forecast_fog_tonight.json");
     const time_t fetched = at("2026-11-05T11:15:00+01:00");
-    struct weather_report report = {};
-    TEST_ASSERT_TRUE(weather_parse_open_meteo(json, fetched, &report));
-    assert_report((struct weather_report){fetched, 7, 2, 9, 0}, report);
+    const struct forecast forecast = read_open_meteo(json, fetched);
+    TEST_ASSERT_TRUE(forecast.ok);
+    assert_report((struct weather_report){fetched, 7, 2, 9, 0}, forecast.report);
     g_free(json);
 }
 
 static void test_word_is_weather_now_when_nothing_due(void) {
     gchar *json = fixture("open_meteo_forecast_fog_tonight.json");
     const time_t morning = at("2026-11-05T10:30:00+01:00");
-    struct weather_state state = {.have_report = true, .eaqi = -1};
-    TEST_ASSERT_TRUE(weather_parse_open_meteo(json, morning, &state.report));
-    TEST_ASSERT_EQUAL_INT(0, state.report.code);
+    const struct forecast forecast = read_open_meteo(json, morning);
+    TEST_ASSERT_TRUE(forecast.ok);
+    TEST_ASSERT_EQUAL_INT(0, forecast.report.code);
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &forecast, NO_ANSWER, NO_ANSWER, morning);
     assert_view(weather_view(&state, morning), WEATHER_ICON_SUN, "7°", "2~9°", "晴",
                 WEATHER_LINE_WORD);
     g_free(json);
@@ -321,8 +375,10 @@ static void test_precipitation_due_before_20_shows_ahead(void) {
     const struct hour afternoon_rain = {"2026-11-05T15:00:00+01:00", 61};
     gchar *json = open_meteo_json(0, &afternoon_rain, 1);
     const time_t morning = at("2026-11-05T08:00:00+01:00");
-    struct weather_state state = {.have_report = true, .eaqi = -1};
-    TEST_ASSERT_TRUE(weather_parse_open_meteo(json, morning, &state.report));
+    const struct forecast forecast = read_open_meteo(json, morning);
+    TEST_ASSERT_TRUE(forecast.ok);
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &forecast, NO_ANSWER, NO_ANSWER, morning);
     assert_view(weather_view(&state, morning), WEATHER_ICON_RAIN, "7°", "2~9°", "小雨",
                 WEATHER_LINE_WORD);
     g_free(json);
@@ -392,18 +448,18 @@ static void test_highest_due_code_wins(void) {
             {"2026-11-05T21:00:00+01:00", 95},
     };
     gchar *json = open_meteo_json(0, hours, G_N_ELEMENTS(hours));
-    struct weather_report report = {};
-    TEST_ASSERT_TRUE(weather_parse_open_meteo(json, at("2026-11-05T08:00:00+01:00"), &report));
-    TEST_ASSERT_EQUAL_INT(65, report.code);
+    const struct forecast forecast = read_open_meteo(json, at("2026-11-05T08:00:00+01:00"));
+    TEST_ASSERT_TRUE(forecast.ok);
+    TEST_ASSERT_EQUAL_INT(65, forecast.report.code);
     g_free(json);
 }
 
 static void test_met_norway_word_is_the_weather_now(void) {
     gchar *json = fixture("met_norway_compact.json");
     const time_t after_the_fog = at("2026-10-29T10:30:00+01:00");
-    struct weather_report report = {};
-    TEST_ASSERT_TRUE(weather_parse_met_norway(json, after_the_fog, &report));
-    assert_report((struct weather_report){after_the_fog, 10, 7, 12, 3}, report);
+    const struct forecast forecast = read_met_norway(json, after_the_fog);
+    TEST_ASSERT_TRUE(forecast.ok);
+    assert_report((struct weather_report){after_the_fog, 10, 7, 12, 3}, forecast.report);
     g_free(json);
 }
 
@@ -438,31 +494,36 @@ static void test_met_norway_same_rule(void) {
     };
     for (size_t i = 0; i < G_N_ELEMENTS(cases); i++) {
         gchar *json = met_norway_json(cases[i].entries, cases[i].count);
-        struct weather_report report = {};
-        TEST_ASSERT_TRUE_MESSAGE(weather_parse_met_norway(json, at(cases[i].fetched), &report),
-                                 cases[i].name);
-        TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].expected, report.code, cases[i].name);
+        const struct forecast forecast = read_met_norway(json, at(cases[i].fetched));
+        TEST_ASSERT_TRUE_MESSAGE(forecast.ok, cases[i].name);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(cases[i].expected, forecast.report.code, cases[i].name);
         g_free(json);
     }
 
     gchar *json = met_norway_json(cases[0].entries, cases[0].count);
     const time_t morning = at(cases[0].fetched);
-    struct weather_report report = {};
-    TEST_ASSERT_TRUE(weather_parse_met_norway(json, morning, &report));
-    assert_report((struct weather_report){morning, 7, 5, 9, 61}, report);
+    const struct forecast forecast = read_met_norway(json, morning);
+    TEST_ASSERT_TRUE(forecast.ok);
+    assert_report((struct weather_report){morning, 7, 5, 9, 61}, forecast.report);
     g_free(json);
 }
 
 static void test_parse_eaqi(void) {
     gchar *json = fixture("open_meteo_air.json");
-    int eaqi = -7;
-    TEST_ASSERT_TRUE(weather_parse_eaqi(json, &eaqi));
-    TEST_ASSERT_EQUAL_INT(50, eaqi);
-    eaqi = -7;
-    TEST_ASSERT_FALSE(weather_parse_eaqi("{\"current\":{\"european_aqi\":null}}", &eaqi));
-    TEST_ASSERT_FALSE(weather_parse_eaqi("{\"current\":{\"european_aqi\":-3}}", &eaqi));
-    TEST_ASSERT_FALSE(weather_parse_eaqi("[]", &eaqi));
-    TEST_ASSERT_EQUAL_INT(-7, eaqi);
+    const time_t noon = at(NOON);
+    const struct forecast forecast = forecast_at(noon);
+    const struct weather_state good =
+            update((struct weather_state){.eaqi = -1}, &forecast, json, NO_ANSWER, noon);
+    TEST_ASSERT_EQUAL_INT(50, good.eaqi);
+    static const char *const unusable[] = {
+            "{\"current\":{\"european_aqi\":null}}",
+            "{\"current\":{\"european_aqi\":-3}}",
+            "[]",
+    };
+    for (size_t i = 0; i < G_N_ELEMENTS(unusable); i++) {
+        const struct weather_state state = update(good, &forecast, unusable[i], NO_ANSWER, noon);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(-1, state.eaqi, unusable[i]);
+    }
     g_free(json);
 }
 
@@ -543,13 +604,15 @@ static void test_offline_after_12h(void) {
     assert_unavailable(weather_view(&never_fetched, at("2026-10-28T16:00:00+01:00")));
 }
 
-static void test_absorb_takes_forecast_air_and_warning(void) {
-    struct weather_state state = {.eaqi = -1};
+static void test_update_takes_forecast_air_and_warning(void) {
     const time_t now = at("2026-10-28T19:00:00+01:00");
-    const struct weather_fetched fetched = everything_fetched(now);
-    weather_absorb(&state, &fetched, now);
+    const struct forecast forecast = forecast_at(now);
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &forecast, AIR_75, WIND_WARNING, now);
     TEST_ASSERT_TRUE(state.have_report);
-    assert_report(fetched.forecast.report, state.report);
+    assert_report(forecast.report, state.report);
+    TEST_ASSERT_EQUAL_INT64(now + FETCH_PERIOD_SECONDS, state.next_fetch);
+    TEST_ASSERT_EQUAL_INT(0, state.open_meteo_failures);
     TEST_ASSERT_EQUAL_INT(75, state.eaqi);
     TEST_ASSERT_TRUE(state.have_warning);
     TEST_ASSERT_EQUAL_STRING("大风预警", state.warning);
@@ -557,44 +620,108 @@ static void test_absorb_takes_forecast_air_and_warning(void) {
                 WEATHER_LINE_BADGE);
 }
 
-static void test_absorb_keeps_previous_report_without_forecast(void) {
-    struct weather_state state = {.eaqi = -1};
+static void test_update_keeps_previous_report_without_forecast(void) {
     const time_t first = at("2026-10-28T19:00:00+01:00");
-    const struct weather_fetched good = everything_fetched(first);
-    weather_absorb(&state, &good, first);
+    const struct forecast good = forecast_at(first);
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &good, AIR_75, WIND_WARNING, first);
 
     const time_t later = first + FETCH_PERIOD_SECONDS;
-    const struct weather_fetched no_forecast = {
-            .air = {.ok = true, .eaqi = 10},
-            .warnings = {.ok = true},
-    };
-    weather_absorb(&state, &no_forecast, later);
-    TEST_ASSERT_TRUE(state.have_report);
-    assert_report(good.forecast.report, state.report);
-    TEST_ASSERT_EQUAL_INT(75, state.eaqi);
-    TEST_ASSERT_TRUE(state.have_warning);
-    TEST_ASSERT_EQUAL_STRING("大风预警", state.warning);
-    assert_view(weather_view(&state, later), WEATHER_ICON_CLOUD, "11°", "3~12°", "大风预警",
+    const struct forecast no_forecast = read_open_meteo(NO_ANSWER, later);
+    const struct weather_state kept =
+            update(state, &no_forecast, "{\"current\":{\"european_aqi\":10}}", NO_WARNINGS, later);
+    TEST_ASSERT_TRUE(kept.have_report);
+    assert_report(good.report, kept.report);
+    TEST_ASSERT_EQUAL_INT(75, kept.eaqi);
+    TEST_ASSERT_TRUE(kept.have_warning);
+    TEST_ASSERT_EQUAL_STRING("大风预警", kept.warning);
+    assert_view(weather_view(&kept, later), WEATHER_ICON_CLOUD, "11°", "3~12°", "大风预警",
                 WEATHER_LINE_BADGE);
 
-    struct weather_state never_fetched = {.eaqi = -1};
-    weather_absorb(&never_fetched, &no_forecast, later);
+    const struct weather_state never_fetched =
+            update((struct weather_state){.eaqi = -1}, &no_forecast,
+                   "{\"current\":{\"european_aqi\":10}}", NO_WARNINGS, later);
     TEST_ASSERT_FALSE(never_fetched.have_report);
     assert_unavailable(weather_view(&never_fetched, later));
 }
 
-static void test_absorb_forecast_without_air_or_warnings_clears_badges(void) {
-    struct weather_state state = {.have_warning = true, .warning = "暴雨预警", .eaqi = 99};
+static void test_update_forecast_without_air_or_warnings_clears_badges(void) {
+    const struct weather_state badges = {.have_warning = true, .warning = "暴雨预警", .eaqi = 99};
     const time_t now = at("2026-10-28T19:00:00+01:00");
-    const struct weather_fetched only_forecast = {
-            .forecast = {.ok = true, .report = {now, 11, 3, 12, 3}},
-    };
-    weather_absorb(&state, &only_forecast, now);
+    const struct forecast forecast = forecast_at(now);
+    const struct weather_state state = update(badges, &forecast, NO_ANSWER, NO_ANSWER, now);
     TEST_ASSERT_TRUE(state.have_report);
     TEST_ASSERT_FALSE(state.have_warning);
     TEST_ASSERT_EQUAL_INT(-1, state.eaqi);
     assert_view(weather_view(&state, now), WEATHER_ICON_CLOUD, "11°", "3~12°", "阴",
                 WEATHER_LINE_WORD);
+}
+
+static void test_met_norway_is_asked_from_the_second_failure_in_a_row(void) {
+    gchar *json = fixture("met_norway_compact.json");
+    const time_t second = at("2026-10-28T15:14:18Z");
+    const time_t first = second - FETCH_PERIOD_SECONDS;
+    const time_t third = second + FETCH_PERIOD_SECONDS;
+
+    const struct weather_state start = {.eaqi = -1};
+    const struct forecast first_failure = read_open_meteo(NO_ANSWER, first);
+    TEST_ASSERT_FALSE(weather_wants_met_norway(&start, &first_failure));
+    const struct weather_state one_failure =
+            update(start, &first_failure, NO_ANSWER, NO_ANSWER, first);
+    TEST_ASSERT_EQUAL_INT(1, one_failure.open_meteo_failures);
+
+    const struct forecast second_failure = read_open_meteo(NO_ANSWER, second);
+    TEST_ASSERT_TRUE(weather_wants_met_norway(&one_failure, &second_failure));
+    const struct forecast from_met = read_met_norway(json, second);
+    const struct weather_state on_met =
+            update(one_failure, &from_met, NO_ANSWER, NO_ANSWER, second);
+    TEST_ASSERT_TRUE(on_met.have_report);
+    assert_report((struct weather_report){second, 11, 9, 12, 3}, on_met.report);
+    TEST_ASSERT_EQUAL_INT(2, on_met.open_meteo_failures);
+
+    const struct forecast third_failure = read_open_meteo(NO_ANSWER, third);
+    TEST_ASSERT_TRUE(weather_wants_met_norway(&on_met, &third_failure));
+    const struct forecast recovered = forecast_at(third);
+    TEST_ASSERT_FALSE(weather_wants_met_norway(&on_met, &recovered));
+    const struct weather_state back = update(on_met, &recovered, NO_ANSWER, NO_ANSWER, third);
+    TEST_ASSERT_EQUAL_INT(0, back.open_meteo_failures);
+    assert_report(recovered.report, back.report);
+    g_free(json);
+}
+
+static void test_failed_forecast_keeps_report_air_and_warning(void) {
+    const time_t first = at("2026-10-28T19:00:00+01:00");
+    const struct forecast forecast = forecast_at(first);
+    const struct weather_state previous =
+            update((struct weather_state){.eaqi = -1}, &forecast,
+                   "{\"current\":{\"european_aqi\":70}}", WIND_WARNING, first);
+
+    const time_t now = first + FETCH_PERIOD_SECONDS;
+    const struct forecast failed = read_open_meteo(NO_ANSWER, now);
+    const struct weather_state state =
+            update(previous, &failed, "{\"current\":{\"european_aqi\":10}}", NO_WARNINGS, now);
+    TEST_ASSERT_TRUE(state.have_report);
+    assert_report(forecast.report, state.report);
+    TEST_ASSERT_EQUAL_INT(70, state.eaqi);
+    TEST_ASSERT_TRUE(state.have_warning);
+    TEST_ASSERT_EQUAL_STRING("大风预警", state.warning);
+    TEST_ASSERT_EQUAL_INT64(now + FETCH_PERIOD_SECONDS, state.next_fetch);
+    TEST_ASSERT_EQUAL_INT(previous.open_meteo_failures + 1, state.open_meteo_failures);
+}
+
+static void test_failed_forecast_still_reads_air_and_warnings(void) {
+    const time_t now = at("2026-10-28T19:00:00+01:00");
+    const struct forecast failed = read_open_meteo(NO_ANSWER, now);
+    char captured[512];
+    start_capture();
+    const struct weather_state state =
+            update((struct weather_state){.eaqi = -1}, &failed, "{}", "{}", now);
+    finish_capture(captured, sizeof captured);
+    TEST_ASSERT_FALSE(state.have_report);
+    TEST_ASSERT_EQUAL_INT(-1, state.eaqi);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, "air quality has no current european_aqi"),
+                                 captured);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, "IMGW's warnings aren't a JSON array"), captured);
 }
 
 static void test_due_first_tick_then_30_min_after_each_attempt(void) {
@@ -659,9 +786,12 @@ int main(void) {
     RUN_TEST(test_badge_replaces_word);
     RUN_TEST(test_stale_after_2h_shows_update_time_without_range);
     RUN_TEST(test_offline_after_12h);
-    RUN_TEST(test_absorb_takes_forecast_air_and_warning);
-    RUN_TEST(test_absorb_keeps_previous_report_without_forecast);
-    RUN_TEST(test_absorb_forecast_without_air_or_warnings_clears_badges);
+    RUN_TEST(test_update_takes_forecast_air_and_warning);
+    RUN_TEST(test_update_keeps_previous_report_without_forecast);
+    RUN_TEST(test_update_forecast_without_air_or_warnings_clears_badges);
+    RUN_TEST(test_met_norway_is_asked_from_the_second_failure_in_a_row);
+    RUN_TEST(test_failed_forecast_keeps_report_air_and_warning);
+    RUN_TEST(test_failed_forecast_still_reads_air_and_warnings);
     RUN_TEST(test_due_first_tick_then_30_min_after_each_attempt);
     RUN_TEST(test_open_meteo_failures_count_and_reset);
     return UNITY_END();

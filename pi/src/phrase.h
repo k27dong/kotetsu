@@ -6,7 +6,10 @@
 
 #include "config.h"
 #include "shared/dashboard.h"
+#include "shared/http.h"
 #include "shared/time.h"
+
+#define PHRASE_NOW_PATH "/api/pi/now"
 
 static constexpr size_t GREETING_TEXT_BYTES = 64;
 
@@ -31,7 +34,9 @@ struct phrase_answer {
 };
 
 struct phrase_state {
-    bool have_answer;
+    enum dashboard_status status; // this tick's answer
+    bool answered_today;          // the last good answer came on this Warsaw day
+    bool have_answer;             // the fields below hold the last good answer
     struct phrase_answer answer;
     struct civil_date answered_on;
 };
@@ -45,4 +50,5 @@ struct phrase {
 
 // keeps the last good answer on failure
 struct phrase phrase_fetch(struct phrase_state *state, const struct config *config, time_t now);
-[[nodiscard]] enum dashboard_status phrase_parse(const char *json, struct phrase_answer *out);
+[[nodiscard]] struct phrase_state phrase_read(struct phrase_state previous, const char *url,
+                                              const struct http_response *response, time_t now);

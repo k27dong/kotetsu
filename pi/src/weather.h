@@ -2,7 +2,23 @@
 
 #include <time.h>
 
+#include "shared/http.h"
 #include "warnings.h"
+
+#define WARSAW_LATITUDE  "52.23"
+#define WARSAW_LONGITUDE "21.01"
+
+#define WEATHER_OPEN_METEO_URL                                                                \
+    "https://api.open-meteo.com/v1/forecast?latitude=" WARSAW_LATITUDE                        \
+    "&longitude=" WARSAW_LONGITUDE "&current=temperature_2m,weather_code&hourly=weather_code" \
+    "&daily=temperature_2m_max,temperature_2m_min"                                            \
+    "&timezone=Europe%2FWarsaw&timeformat=unixtime&forecast_days=1"
+#define WEATHER_MET_NORWAY_URL                                                        \
+    "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=" WARSAW_LATITUDE \
+    "&lon=" WARSAW_LONGITUDE
+#define WEATHER_AIR_QUALITY_URL                                                       \
+    "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" WARSAW_LATITUDE \
+    "&longitude=" WARSAW_LONGITUDE "&current=european_aqi"
 
 enum weather_icon {
     WEATHER_ICON_SUN,
@@ -73,9 +89,14 @@ bool weather_due(const struct weather_state *state, time_t now);
 struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now);
 struct air weather_fetch_air(void);
 void weather_absorb(struct weather_state *state, const struct weather_fetched *fetched, time_t now);
+[[nodiscard]] struct forecast weather_read_open_meteo(const struct http_response *response,
+                                                      time_t now);
+[[nodiscard]] struct forecast weather_read_met_norway(const struct http_response *response,
+                                                      time_t now);
+bool weather_wants_met_norway(const struct weather_state *state, const struct forecast *open_meteo);
+// a failed forecast keeps the last report, air and warning
+[[nodiscard]] struct weather_state weather_update(struct weather_state previous,
+                                                  const struct forecast *forecast,
+                                                  const struct http_response *air,
+                                                  const struct http_response *warnings, time_t now);
 struct weather_view weather_view(const struct weather_state *state, time_t now);
-[[nodiscard]] bool weather_parse_open_meteo(const char *json, time_t now,
-                                            struct weather_report *out);
-[[nodiscard]] bool weather_parse_met_norway(const char *json, time_t now,
-                                            struct weather_report *out);
-[[nodiscard]] bool weather_parse_eaqi(const char *json, int *eaqi);

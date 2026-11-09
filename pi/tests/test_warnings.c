@@ -5,6 +5,7 @@
 #include <cjson/cJSON.h>
 #include <glib.h>
 
+#include "shared/http.h"
 #include "shared/time.h"
 #include "stderr_capture.h"
 #include "unity.h"
@@ -32,6 +33,20 @@ static gchar *fixture(const char *name) {
     return contents;
 }
 
+static struct http_response answer(long status, const char *body) {
+    char *copy = strdup(body);
+    TEST_ASSERT_NOT_NULL(copy);
+    return (struct http_response){
+            .ok = true, .status = status, .body = copy, .length = strlen(copy)};
+}
+
+static struct warnings read_warnings(const char *json, time_t now) {
+    struct http_response response = answer(HTTP_OK, json);
+    const struct warnings warnings = warnings_read(&response, now);
+    http_response_free(&response);
+    return warnings;
+}
+
 // in force for Warsaw from 08:00 to 20:00 on 2026-10-28
 static gchar *entry(const char *event, const char *level, const char *published) {
     return g_strdup_printf("{\"id\":\"Sk20261028000000000\",\"nazwa_zdarzenia\":\"%s\","
@@ -55,27 +70,27 @@ static gchar *only_entry(const char *json, int index) {
 }
 
 static void assert_top(const char *json, const char *now, const char *label) {
-    const struct warnings warnings = warnings_parse(json, at(now));
+    const struct warnings warnings = read_warnings(json, at(now));
     TEST_ASSERT_TRUE_MESSAGE(warnings.ok, now);
     TEST_ASSERT_TRUE_MESSAGE(warnings.any, now);
     TEST_ASSERT_EQUAL_STRING_MESSAGE(label, warnings.label, now);
 }
 
 static void assert_none(const char *json, const char *now) {
-    const struct warnings warnings = warnings_parse(json, at(now));
+    const struct warnings warnings = read_warnings(json, at(now));
     TEST_ASSERT_TRUE_MESSAGE(warnings.ok, now);
     TEST_ASSERT_FALSE_MESSAGE(warnings.any, now);
     TEST_ASSERT_EQUAL_STRING_MESSAGE("", warnings.label, now);
 }
 
 static void assert_error(const char *json) {
-    const struct warnings warnings = warnings_parse(json, at(MIDDAY));
+    const struct warnings warnings = read_warnings(json, at(MIDDAY));
     TEST_ASSERT_FALSE_MESSAGE(warnings.ok, json);
     TEST_ASSERT_FALSE_MESSAGE(warnings.any, json);
 }
 
 static bool in_force(const char *json, const char *now) {
-    const struct warnings warnings = warnings_parse(json, at(now));
+    const struct warnings warnings = read_warnings(json, at(now));
     TEST_ASSERT_TRUE_MESSAGE(warnings.ok, now);
     return warnings.any;
 }
@@ -217,7 +232,7 @@ static void test_imgw_no_warnings_message_is_not_an_error(void) {
     char captured[4096];
 
     start_capture();
-    const struct warnings none = warnings_parse(json, now);
+    const struct warnings none = read_warnings(json, now);
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_TRUE(none.ok);
     TEST_ASSERT_FALSE(none.any);
@@ -225,25 +240,37 @@ static void test_imgw_no_warnings_message_is_not_an_error(void) {
 
     start_capture();
     const struct warnings reworded =
-            warnings_parse("{\"message\":\"Brak aktualnych ostrze\\u017ce\\u0144\"}", now);
+            read_warnings("{\"message\":\"Brak aktualnych ostrze\\u017ce\\u0144\"}", now);
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_TRUE(reworded.ok);
     TEST_ASSERT_FALSE(reworded.any);
     TEST_ASSERT_EQUAL_STRING("", captured);
 
     start_capture();
-    const struct warnings empty_list = warnings_parse("[]", now);
+    const struct warnings empty_list = read_warnings("[]", now);
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_TRUE(empty_list.ok);
     TEST_ASSERT_FALSE(empty_list.any);
     TEST_ASSERT_EQUAL_STRING("", captured);
 
     start_capture();
-    const struct warnings not_a_list = warnings_parse("{}", now);
+    const struct warnings not_a_list = read_warnings("{}", now);
     finish_capture(captured, sizeof captured);
     TEST_ASSERT_FALSE(not_a_list.ok);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, "IMGW"), captured);
     g_free(json);
+}
+
+static void test_non_200_warnings_answer_is_not_ok(void) {
+    struct http_response response = answer(404, "");
+    char captured[256];
+    start_capture();
+    const struct warnings warnings = warnings_read(&response, at(MIDDAY));
+    finish_capture(captured, sizeof captured);
+    http_response_free(&response);
+    TEST_ASSERT_FALSE(warnings.ok);
+    TEST_ASSERT_FALSE(warnings.any);
+    TEST_ASSERT_EQUAL_STRING("<3>" WARNINGS_URL " answered 404\n", captured);
 }
 
 int main(void) {
@@ -256,5 +283,6 @@ int main(void) {
     RUN_TEST(test_unmapped_warning_ignored);
     RUN_TEST(test_imgw_skips_malformed_entries);
     RUN_TEST(test_imgw_no_warnings_message_is_not_an_error);
+    RUN_TEST(test_non_200_warnings_answer_is_not_ok);
     return UNITY_END();
 }

@@ -17,8 +17,6 @@
 #include "shared/text.h"
 #include "shared/time.h"
 
-#define NOW_PATH "/api/pi/now"
-
 static const char *const GREETING_ICON_NAMES[] = {
         [GREETING_HEART] = "heart", [GREETING_RINGS] = "rings",   [GREETING_CAKE] = "cake",
         [GREETING_CAT] = "cat",     [GREETING_HEARTS] = "hearts", [GREETING_STAR] = "star",
@@ -127,7 +125,8 @@ static bool read_answer(const cJSON *root, struct phrase_answer *answer) {
     return true;
 }
 
-enum dashboard_status phrase_parse(const char *json, struct phrase_answer *out) {
+[[nodiscard]] static enum dashboard_status phrase_parse(const char *json,
+                                                        struct phrase_answer *out) {
     cJSON *root = cJSON_Parse(json);
     struct phrase_answer answer = {};
     const bool good = read_answer(root, &answer);
@@ -141,8 +140,8 @@ enum dashboard_status phrase_parse(const char *json, struct phrase_answer *out) 
 
 struct phrase phrase_fetch(struct phrase_state *state, const struct config *config, time_t now) {
     /* ask the dashboard which phrase to show now */
-    char url[sizeof config->dashboard_url + sizeof NOW_PATH];
-    snprintf(url, sizeof url, "%s" NOW_PATH, config->dashboard_url);
+    char url[sizeof config->dashboard_url + sizeof PHRASE_NOW_PATH];
+    snprintf(url, sizeof url, "%s" PHRASE_NOW_PATH, config->dashboard_url);
     struct http_response response = http_get(url, config->pi_key);
 
     /* read the answer, or log what the dashboard said and name the problem */
@@ -173,4 +172,31 @@ struct phrase phrase_fetch(struct phrase_state *state, const struct config *conf
             .answer = state->answer,
             .answered_today = state->have_answer && time_same_date(state->answered_on, today),
     };
+}
+
+struct phrase_state phrase_read(struct phrase_state previous, const char *url,
+                                const struct http_response *response, time_t now) {
+    /* read the answer */
+    struct phrase_answer answer = {};
+    enum dashboard_status status = DASHBOARD_UNREACHABLE;
+    if (response->ok && response->status == HTTP_OK) {
+        status = phrase_parse(response->body, &answer);
+    } else if (response->ok) {
+        status = dashboard_log_answer(url, response);
+        if (response->status == 503) { // the dashboard's own answer when it has nothing to show
+            status = DASHBOARD_NO_PHRASE;
+        }
+    }
+
+    /* keep a good answer */
+    const struct civil_date today = time_warsaw_date(now);
+    struct phrase_state state = previous;
+    state.status = status;
+    if (status == DASHBOARD_OK) {
+        state.have_answer = true;
+        state.answer = answer;
+        state.answered_on = today;
+    }
+    state.answered_today = state.have_answer && time_same_date(state.answered_on, today);
+    return state;
 }
