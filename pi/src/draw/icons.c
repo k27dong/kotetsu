@@ -59,8 +59,11 @@ static void cloud(cairo_t *cr, double left, double top, double width) {
 }
 
 static void sun(cairo_t *cr, double x, double y, double radius) {
+    /* the disc */
     circle(cr, x, y, radius);
     cairo_fill(cr);
+
+    /* its rays */
     cairo_set_line_width(cr, radius * 0.40);
     for (int ray = 0; ray < SUN_RAYS; ray++) {
         cairo_save(cr);

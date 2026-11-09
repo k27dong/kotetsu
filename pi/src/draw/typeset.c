@@ -28,7 +28,8 @@ static constexpr double HANGING_SHIFT_EM = 0.25;
 #define FEATURES_TABULAR "chws, tnum"
 #define GAP_PLACEHOLDER  "\u2060"
 
-static constexpr size_t GAPPED_TEXT_BYTES = PHRASE_TEXT_MAX_BYTES * 3;  // a 3-byte gap per 2 bytes
+static constexpr size_t GAPPED_TEXT_BYTES =
+        PHRASE_TEXT_MAX_BYTES * 3; // at most one 3-byte gap per 2 bytes of text
 static constexpr size_t DIGIT_RUNS_MAX = PHRASE_TEXT_MAX_BYTES / 2 + 1; // a non-digit between runs
 
 static constexpr gunichar GAP_PLACEHOLDER_CHAR = 0x2060;
@@ -52,9 +53,12 @@ double typeset_snap(double value) {
 }
 
 PangoContext *typeset_context(PangoFontMap *fonts, cairo_t *cr) {
+    /* a Chinese context */
     PangoContext *context = pango_font_map_create_context(fonts);
     pango_context_set_language(context, pango_language_from_string(LANGUAGE));
     pango_cairo_update_context(cr, context);
+
+    /* its font options */
     cairo_font_options_t *options = cairo_font_options_create();
     cairo_font_options_set_antialias(options, CAIRO_ANTIALIAS_GRAY);
     cairo_font_options_set_hint_style(options, CAIRO_HINT_STYLE_SLIGHT);

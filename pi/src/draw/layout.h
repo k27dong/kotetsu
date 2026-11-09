@@ -12,7 +12,7 @@ void draw_close(struct drawing *drawing);
 
 struct draw_input {
     const char *phrase;       // the wanted phrase, nullptr or "" for none
-    const char *glass_phrase; // drawn instead when the wanted one is too long
+    const char *glass_phrase; // drawn when the wanted one is too long, nullptr for none
     struct date date;
     struct weather_view weather;
     bool show_greeting;

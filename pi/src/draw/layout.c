@@ -256,11 +256,14 @@ static void draw_date_line(cairo_t *cr, PangoContext *context, const struct date
 }
 
 static void draw_rest_badge(cairo_t *cr, PangoContext *context) {
+    /* a black square */
     set_ink(cr, INK_BLACK);
     fill_rounded_rect(
             cr,
             (cairo_rectangle_t){REST_BADGE_LEFT, REST_BADGE_TOP, REST_BADGE_SIZE, REST_BADGE_SIZE},
             REST_BADGE_RADIUS);
+
+    /* 休 in white */
     PangoLayout *label = typeset_line(context, LABEL, REST_DAY);
     set_ink(cr, INK_WHITE);
     typeset_show(cr, label, REST_BADGE_LEFT + (REST_BADGE_SIZE - measure(label).advance) / 2,
