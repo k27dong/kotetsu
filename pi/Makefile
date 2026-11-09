@@ -5,7 +5,7 @@ PREFIX = /usr/local
 KOTETSU_FONT_DIR = $(CURDIR)/fonts
 
 # The program's files. The panel driver needs Linux; elsewhere a stand-in says there is no panel.
-SRC = src/config.c src/date.c src/lunar_table.c src/phrase.c src/record.c \
+SRC = src/config.c src/date.c src/lunar_table.c src/phrase.c src/record.c src/state.c \
       src/warnings.c src/weather.c \
       src/draw/frame.c src/draw/icons.c src/draw/layout.c src/draw/typeset.c \
       src/screen/epd.c src/screen/screen.c \

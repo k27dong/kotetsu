@@ -1,16 +1,11 @@
-#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <glib.h>
-#include <glib/gstdio.h>
 
 #include "config.h"
 #include "draw/frame.h"
@@ -20,58 +15,27 @@
 #include "shared/time.h"
 #include "stderr_capture.h"
 #include "unity.h"
-#include "weather.h"
 
-#define PHRASE            "慢慢来，\n比较快"
-#define NOON              "2026-10-26T12:00:00+01:00"
-#define HALF_PAST_ELEVEN  "2026-10-26T11:30:00+01:00"
-#define OLD_PROGRAM_STATE "fixtures/old_program_state"
-#define BEARER_LINE       "\r\nAuthorization: Bearer pi-secret\r\n"
+#define NOON             "2026-10-26T12:00:00+01:00"
+#define HALF_PAST_ELEVEN "2026-10-26T11:30:00+01:00"
+#define BEARER_LINE      "\r\nAuthorization: Bearer pi-secret\r\n"
 #define REPORT_PART \
     "Content-Disposition: form-data; name=\"report\"\r\nContent-Type: application/json\r\n\r\n"
 #define KERNEL_LINK_QUALITY "/proc/net/wireless"
 #define TEMPERATURE_PATH    "/sys/class/thermal/thermal_zone0/temp"
 
 static constexpr size_t CAPTURE_BYTES = 16 * 1024;
-static constexpr long OLD_PROGRAM_STATE_BYTES = 56'242;
-static constexpr long CHECKSUM_BYTES = 8;
-static constexpr long HEADER_BYTES = 5;
-static constexpr long JSON_AREA_BYTES = 16'384;
-static constexpr uint64_t FNV_OFFSET_BASIS = 0xcbf2'9ce4'8422'2325;
-static constexpr uint64_t FNV_PRIME = 0x100'0000'01b3;
 
-static gchar *dir;
-static gchar *path;
 static struct frame glass_frame;
 static char captured[CAPTURE_BYTES];
 
 void setUp(void) {
-    dir = g_dir_make_tmp("kotetsu-record-XXXXXX", nullptr);
-    TEST_ASSERT_NOT_NULL(dir);
-    path = g_build_filename(dir, "state", nullptr);
     for (size_t i = 0; i < FRAME_BYTES; i++) {
         glass_frame.bits[i] = (uint8_t)(i * 37 + i / 100 * 11);
     }
 }
 
 void tearDown(void) {
-    GDir *entries = g_dir_open(dir, 0, nullptr);
-    if (entries != nullptr) {
-        const gchar *name;
-        while ((name = g_dir_read_name(entries)) != nullptr) {
-            gchar *entry = g_build_filename(dir, name, nullptr);
-            if (g_remove(entry) != 0) {
-                fprintf(stderr, "can't remove %s\n", entry);
-            }
-            g_free(entry);
-        }
-        g_dir_close(entries);
-    }
-    if (g_rmdir(dir) != 0) { // no asserts: after a failed test, Unity stops at the first one
-        fprintf(stderr, "can't remove %s\n", dir);
-    }
-    g_free(path);
-    g_free(dir);
 }
 
 static time_t at(const char *text) {
@@ -80,172 +44,12 @@ static time_t at(const char *text) {
     return moment;
 }
 
-static unsigned entries_in_dir(void) {
-    GDir *entries = g_dir_open(dir, 0, nullptr);
-    TEST_ASSERT_NOT_NULL(entries);
-    unsigned count = 0;
-    while (g_dir_read_name(entries) != nullptr) {
-        count++;
-    }
-    g_dir_close(entries);
-    return count;
-}
-
-static long file_size(const char *file) {
-    struct stat status;
-    TEST_ASSERT_EQUAL_INT(0, stat(file, &status));
-    return (long)status.st_size;
-}
-
-static int read_byte(long offset) {
-    FILE *file = fopen(path, "rb");
-    TEST_ASSERT_NOT_NULL(file);
-    TEST_ASSERT_EQUAL_INT(0, fseek(file, offset, SEEK_SET));
-    const int byte = fgetc(file);
-    TEST_ASSERT_EQUAL_INT(0, fclose(file));
-    return byte;
-}
-
-static void write_byte(long offset, int byte) {
-    FILE *file = fopen(path, "r+b");
-    TEST_ASSERT_NOT_NULL(file);
-    TEST_ASSERT_EQUAL_INT(0, fseek(file, offset, SEEK_SET));
-    TEST_ASSERT_EQUAL_INT(byte, fputc(byte, file));
-    TEST_ASSERT_EQUAL_INT(0, fclose(file));
-}
-
 static unsigned count_lines(const char *text) {
     unsigned count = 0;
     for (const char *end = strchr(text, '\n'); end != nullptr; end = strchr(end + 1, '\n')) {
         count++;
     }
     return count;
-}
-
-static void saved_wall(struct wall *wall) {
-    *wall = screen_new_wall();
-    wall->known = true;
-    wall->frame = glass_frame;
-    wall->phrase_id = 183;
-    memcpy(wall->phrase_text, PHRASE, sizeof PHRASE);
-    wall->date = (struct civil_date){2026, 10, 26};
-    wall->last_kind = REFRESH_PARTIAL;
-    wall->partials_since_full = 3;
-    wall->last_refresh = at(NOON);
-    wall->last_tick = at(NOON) + 15;
-    wall->cleanup_minute = 660;
-    wall->cleanup_due = true;
-    wall->full_refresh_done = 41;
-    wall->greeting_wait_since = at(NOON) - 30;
-}
-
-static struct weather_state saved_weather(void) {
-    return (struct weather_state){
-            .have_report = true,
-            .report = {.fetched_at = at(HALF_PAST_ELEVEN),
-                       .now_c = -3,
-                       .low_c = -7,
-                       .high_c = 2,
-                       .code = 71},
-            .next_fetch = at(NOON) + 1800,
-            .open_meteo_failures = 1,
-            .eaqi = 64,
-            .have_warning = true,
-            .warning = "Silny wiatr",
-    };
-}
-
-static struct weather_state starting_weather(void) {
-    return (struct weather_state){.eaqi = -1};
-}
-
-static void save_sample(void) {
-    struct wall wall;
-    saved_wall(&wall);
-    const struct weather_state weather = saved_weather();
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-}
-
-static void assert_weather_untouched(const struct weather_state *weather) {
-    TEST_ASSERT_FALSE(weather->have_report);
-    TEST_ASSERT_EQUAL_INT64(0, weather->report.fetched_at);
-    TEST_ASSERT_EQUAL_INT(-1, weather->eaqi);
-    TEST_ASSERT_EQUAL_INT64(0, weather->next_fetch);
-    TEST_ASSERT_EQUAL_INT(0, weather->open_meteo_failures);
-    TEST_ASSERT_FALSE(weather->have_warning);
-}
-
-static void assert_wall_as_started(const struct wall *wall) {
-    static const struct frame blank = {};
-    TEST_ASSERT_FALSE(wall->known);
-    TEST_ASSERT_EQUAL_MEMORY(blank.bits, wall->frame.bits, FRAME_BYTES);
-    TEST_ASSERT_EQUAL_INT64(0, wall->phrase_id);
-    TEST_ASSERT_EQUAL_STRING("", wall->phrase_text);
-    TEST_ASSERT_EQUAL_INT(0, wall->date.year);
-    TEST_ASSERT_EQUAL_INT(REFRESH_NONE, wall->last_kind);
-    TEST_ASSERT_EQUAL_INT(0, wall->partials_since_full);
-    TEST_ASSERT_EQUAL_INT64(0, wall->last_refresh);
-    TEST_ASSERT_EQUAL_INT64(0, wall->last_tick);
-    TEST_ASSERT_EQUAL_INT(600, wall->cleanup_minute);
-    TEST_ASSERT_FALSE(wall->cleanup_due);
-    TEST_ASSERT_EQUAL_INT64(0, wall->full_refresh_done);
-    TEST_ASSERT_EQUAL_INT64(0, wall->greeting_wait_since);
-}
-
-static void assert_first_refresh_full(const struct wall *wall) {
-    const struct wanted wanted = {
-            .frame = &glass_frame,
-            .phrase_id = wall->phrase_id,
-            .phrase_text = wall->phrase_text,
-            .date = {2026, 10, 26},
-            .cleanup_minute = wall->cleanup_minute,
-            .answered_today = true,
-    };
-    const struct decision decision = screen_decide(wall, &wanted, at(NOON) + 600);
-    TEST_ASSERT_EQUAL_INT(REFRESH_FULL, decision.kind);
-    TEST_ASSERT_EQUAL_INT(REASON_UNKNOWN_GLASS, decision.reason);
-}
-
-static void assert_ignored_with_one_warning(const char *state_path) {
-    struct wall wall;
-    memset(&wall, 0xA5, sizeof wall);
-    struct weather_state weather = starting_weather();
-    start_capture();
-    const bool restored = record_restore(state_path, &wall, &weather);
-    finish_capture(captured, sizeof captured);
-    TEST_ASSERT_FALSE_MESSAGE(restored, captured);
-    TEST_ASSERT_EQUAL_UINT_MESSAGE(1, count_lines(captured), captured);
-    TEST_ASSERT_EQUAL_MEMORY_MESSAGE("<4>", captured, 3, captured);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, state_path), captured);
-    assert_wall_as_started(&wall);
-    assert_weather_untouched(&weather);
-    assert_first_refresh_full(&wall);
-}
-
-static void assert_ignored_because(const char *state_path, const char *reason) {
-    assert_ignored_with_one_warning(state_path);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, reason), captured);
-}
-
-// a good file with its JSON area replaced and its checksum made again, as only a bug could write
-static void write_json_area(const char *area, size_t length) {
-    save_sample();
-    gchar *contents = nullptr;
-    gsize size = 0;
-    TEST_ASSERT_TRUE(g_file_get_contents(path, &contents, &size, nullptr));
-    char *checksum = contents + size - CHECKSUM_BYTES;
-    char *json = checksum - JSON_AREA_BYTES;
-    TEST_ASSERT_EQUAL_MEMORY("{\"phraseId\"", json, strlen("{\"phraseId\""));
-    TEST_ASSERT_LESS_OR_EQUAL_size_t(JSON_AREA_BYTES, length);
-    memset(json, 0, JSON_AREA_BYTES);
-    memcpy(json, area, length);
-    uint64_t sum = FNV_OFFSET_BASIS;
-    for (const char *byte = contents; byte < checksum; byte++) {
-        sum = (sum ^ (uint8_t)*byte) * FNV_PRIME;
-    }
-    memcpy(checksum, &sum, sizeof sum);
-    TEST_ASSERT_TRUE(g_file_set_contents(path, contents, (gssize)size, nullptr));
-    g_free(contents);
 }
 
 static struct config config_for(const char *dashboard_url) {
@@ -294,270 +98,6 @@ static void assert_upload_keeps(int status, const char *expected_error) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, logged), captured);
     TEST_ASSERT_EQUAL_UINT_MESSAGE(1, count_lines(captured), captured);
     g_free(logged);
-}
-
-static void test_save_then_restore_round_trips_with_glass_unknown(void) {
-    save_sample();
-    struct wall wall;
-    memset(&wall, 0xA5, sizeof wall);
-    struct weather_state weather = starting_weather();
-    start_capture();
-    const bool restored = record_restore(path, &wall, &weather);
-    finish_capture(captured, sizeof captured);
-    TEST_ASSERT_TRUE_MESSAGE(restored, captured);
-    TEST_ASSERT_EQUAL_STRING("", captured);
-
-    TEST_ASSERT_FALSE(wall.known);
-    TEST_ASSERT_EQUAL_MEMORY(glass_frame.bits, wall.frame.bits, FRAME_BYTES);
-    TEST_ASSERT_EQUAL_INT64(183, wall.phrase_id);
-    TEST_ASSERT_EQUAL_STRING(PHRASE, wall.phrase_text);
-    TEST_ASSERT_EQUAL_INT64(41, wall.full_refresh_done);
-    TEST_ASSERT_EQUAL_INT(660, wall.cleanup_minute);
-    TEST_ASSERT_EQUAL_INT(3, wall.partials_since_full);
-    TEST_ASSERT_EQUAL_INT64(at(NOON), wall.last_refresh);
-    TEST_ASSERT_EQUAL_INT(0, wall.date.year); // not saved: these start as screen_new_wall has them
-    TEST_ASSERT_EQUAL_INT(REFRESH_NONE, wall.last_kind);
-    TEST_ASSERT_EQUAL_INT64(0, wall.last_tick);
-    TEST_ASSERT_FALSE(wall.cleanup_due);
-    TEST_ASSERT_EQUAL_INT64(0, wall.greeting_wait_since);
-
-    TEST_ASSERT_TRUE(weather.have_report);
-    TEST_ASSERT_EQUAL_INT64(at(HALF_PAST_ELEVEN), weather.report.fetched_at);
-    TEST_ASSERT_EQUAL_INT(-3, weather.report.now_c);
-    TEST_ASSERT_EQUAL_INT(-7, weather.report.low_c);
-    TEST_ASSERT_EQUAL_INT(2, weather.report.high_c);
-    TEST_ASSERT_EQUAL_INT(71, weather.report.code);
-    TEST_ASSERT_EQUAL_INT(-1, weather.eaqi); // the rest of the weather state is the caller's
-    TEST_ASSERT_EQUAL_INT64(0, weather.next_fetch);
-    TEST_ASSERT_EQUAL_INT(0, weather.open_meteo_failures);
-    TEST_ASSERT_FALSE(weather.have_warning);
-    assert_first_refresh_full(&wall);
-}
-
-static void test_save_then_restore_without_phrase_request_or_weather(void) {
-    struct wall wall = screen_new_wall();
-    wall.cleanup_minute = 0; // midnight is a real minute, not "none"
-    const struct weather_state nothing = starting_weather();
-    TEST_ASSERT_TRUE(record_save(path, &wall, &nothing));
-
-    struct wall restored;
-    memset(&restored, 0xA5, sizeof restored);
-    struct weather_state weather = starting_weather();
-    TEST_ASSERT_TRUE(record_restore(path, &restored, &weather));
-    TEST_ASSERT_FALSE(restored.known);
-    TEST_ASSERT_EQUAL_INT64(0, restored.phrase_id);
-    TEST_ASSERT_EQUAL_STRING("", restored.phrase_text);
-    TEST_ASSERT_EQUAL_INT64(0, restored.full_refresh_done);
-    TEST_ASSERT_EQUAL_INT(0, restored.cleanup_minute);
-    assert_weather_untouched(&weather);
-}
-
-static void test_longest_phrase_round_trips(void) {
-    struct wall wall;
-    saved_wall(&wall);
-    memset(wall.phrase_text, '\x01', PHRASE_TEXT_MAX_BYTES - 1); // each byte is 6 in JSON
-    wall.phrase_text[PHRASE_TEXT_MAX_BYTES - 1] = '\0';
-    const struct weather_state weather = saved_weather();
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-
-    struct wall restored;
-    struct weather_state restored_weather = starting_weather();
-    TEST_ASSERT_TRUE(record_restore(path, &restored, &restored_weather));
-    TEST_ASSERT_EQUAL_size_t(PHRASE_TEXT_MAX_BYTES - 1, strlen(restored.phrase_text));
-    TEST_ASSERT_EQUAL_STRING(wall.phrase_text, restored.phrase_text);
-    TEST_ASSERT_TRUE(restored_weather.have_report);
-}
-
-static void test_restore_ignores_old_program_file(void) {
-    TEST_ASSERT_EQUAL_INT64(OLD_PROGRAM_STATE_BYTES, file_size(OLD_PROGRAM_STATE));
-    gchar *contents = nullptr;
-    TEST_ASSERT_TRUE(g_file_get_contents(OLD_PROGRAM_STATE, &contents, nullptr, nullptr));
-    TEST_ASSERT_EQUAL_MEMORY("KTS2\x01", contents, HEADER_BYTES); // the old magic, version 1
-    g_free(contents);
-    assert_ignored_with_one_warning(OLD_PROGRAM_STATE);
-}
-
-static void test_restore_ignores_truncated_file(void) {
-    save_sample();
-    const long full = file_size(path);
-    const long lengths[] = {full - 1, full - CHECKSUM_BYTES, full / 2, HEADER_BYTES, 3, 0};
-    for (size_t i = 0; i < G_N_ELEMENTS(lengths); i++) {
-        TEST_ASSERT_EQUAL_INT(0, truncate(path, (off_t)lengths[i]));
-        assert_ignored_with_one_warning(path);
-    }
-}
-
-static void test_restore_ignores_longer_file(void) {
-    save_sample();
-    FILE *file = fopen(path, "ab");
-    TEST_ASSERT_NOT_NULL(file);
-    TEST_ASSERT_EQUAL_INT('x', fputc('x', file));
-    TEST_ASSERT_EQUAL_INT(0, fclose(file));
-    assert_ignored_with_one_warning(path);
-}
-
-static void test_restore_ignores_corrupt_file(void) {
-    save_sample();
-    const long full = file_size(path);
-    gchar *contents = nullptr;
-    gsize length = 0;
-    TEST_ASSERT_TRUE(g_file_get_contents(path, &contents, &length, nullptr));
-    const char *json = memmem(contents, length, "{\"phraseId\"", strlen("{\"phraseId\""));
-    TEST_ASSERT_NOT_NULL(json);
-    const long json_start = (long)(json - contents);
-    g_free(contents);
-
-    const long offsets[] = {0,
-                            3,
-                            4,
-                            HEADER_BYTES,
-                            full / 2,
-                            json_start,
-                            json_start + 40,
-                            full - CHECKSUM_BYTES - 1,
-                            full - CHECKSUM_BYTES,
-                            full - 1};
-    for (size_t i = 0; i < G_N_ELEMENTS(offsets); i++) {
-        const int byte = read_byte(offsets[i]);
-        write_byte(offsets[i], byte ^ 0x01);
-        assert_ignored_with_one_warning(path);
-        write_byte(offsets[i], byte);
-        struct wall wall;
-        struct weather_state weather = starting_weather();
-        TEST_ASSERT_TRUE(record_restore(path, &wall, &weather));
-    }
-}
-
-static void test_restore_ignores_unusable_values(void) {
-    struct wall wall;
-    const struct weather_state weather = saved_weather();
-
-    saved_wall(&wall);
-    wall.cleanup_minute = MINUTES_PER_DAY;
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-    assert_ignored_because(path, "its clean-up minute is unusable");
-
-    saved_wall(&wall);
-    wall.cleanup_minute = -1;
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-    assert_ignored_because(path, "its clean-up minute is unusable");
-
-    saved_wall(&wall);
-    wall.phrase_id = -183;
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-    assert_ignored_because(path, "its phrase is unusable");
-
-    saved_wall(&wall);
-    wall.phrase_text[0] = '\0';
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-    assert_ignored_because(path, "its phrase is unusable");
-
-    saved_wall(&wall);
-    memcpy(wall.phrase_text, "abc\xc3", sizeof "abc\xc3");
-    TEST_ASSERT_TRUE(record_save(path, &wall, &weather));
-    assert_ignored_because(path, "its phrase is unusable");
-}
-
-static void test_restore_ignores_json_that_isnt_an_object(void) {
-    static const char good[] = "{\"cleanupMinute\":700}"; // the area is replaced and signed right
-    write_json_area(good, strlen(good));
-    struct wall wall;
-    struct weather_state weather = starting_weather();
-    TEST_ASSERT_TRUE(record_restore(path, &wall, &weather));
-    TEST_ASSERT_EQUAL_INT(700, wall.cleanup_minute);
-
-    static const char *const areas[] = {"[]", "\"x\"", "7", "null", "nonsense", ""};
-    for (size_t i = 0; i < G_N_ELEMENTS(areas); i++) {
-        write_json_area(areas[i], strlen(areas[i]));
-        assert_ignored_because(path, "its JSON isn't an object");
-    }
-}
-
-static void test_restore_ignores_unusable_full_refresh(void) {
-    static const char *const areas[] = {
-            "{\"fullRefresh\":\"41\",\"cleanupMinute\":660}",
-            "{\"fullRefresh\":41.5,\"cleanupMinute\":660}",
-            "{\"fullRefresh\":null,\"cleanupMinute\":660}",
-    };
-    for (size_t i = 0; i < G_N_ELEMENTS(areas); i++) {
-        write_json_area(areas[i], strlen(areas[i]));
-        assert_ignored_because(path, "its full refresh is unusable");
-    }
-}
-
-static void test_restore_ignores_unusable_weather(void) {
-    static const char *const areas[] = {
-            "{\"cleanupMinute\":660,\"weather\":{\"fetchedAt\":1790000000,\"nowC\":7,\"lowC\":3,"
-            "\"highC\":11}}",
-            "{\"cleanupMinute\":660,\"weather\":{\"fetchedAt\":1790000000,\"nowC\":7,\"lowC\":3,"
-            "\"highC\":11,\"code\":\"61\"}}",
-            "{\"cleanupMinute\":660,\"weather\":{\"fetchedAt\":1790000000,\"nowC\":7.5,\"lowC\":3,"
-            "\"highC\":11,\"code\":61}}",
-            "{\"cleanupMinute\":660,\"weather\":7}",
-    };
-    for (size_t i = 0; i < G_N_ELEMENTS(areas); i++) {
-        write_json_area(areas[i], strlen(areas[i]));
-        assert_ignored_because(path, "its weather report is unusable");
-    }
-}
-
-static void test_restore_ignores_unterminated_json(void) {
-    char *area =
-            g_malloc(JSON_AREA_BYTES); // no NUL and no end, so the parse runs to the area's edge
-    memset(area, 'a', JSON_AREA_BYTES);
-    static const char start[] = "{\"cleanupMinute\":660,\"pad\":\"";
-    memcpy(area, start, strlen(start));
-    write_json_area(area, JSON_AREA_BYTES);
-    assert_ignored_because(path, "its JSON isn't an object");
-    g_free(area);
-}
-
-static void test_restore_missing_file_is_quiet(void) {
-    gchar *missing = g_build_filename(dir, "missing", nullptr);
-    struct wall wall;
-    memset(&wall, 0xA5, sizeof wall);
-    struct weather_state weather = starting_weather();
-    start_capture();
-    const bool restored = record_restore(missing, &wall, &weather);
-    finish_capture(captured, sizeof captured);
-    TEST_ASSERT_FALSE(restored);
-    gchar *expected = g_strdup_printf("<6>no saved state at %s\n", missing);
-    TEST_ASSERT_EQUAL_STRING(expected, captured);
-    assert_wall_as_started(&wall);
-    assert_weather_untouched(&weather);
-    assert_first_refresh_full(&wall);
-    g_free(expected);
-    g_free(missing);
-}
-
-static void test_save_leaves_no_temp_file(void) {
-    save_sample();
-    const long full = file_size(path);
-    const struct wall wall = screen_new_wall();
-    const struct weather_state nothing = starting_weather();
-    TEST_ASSERT_TRUE(record_save(path, &wall, &nothing));
-    TEST_ASSERT_EQUAL_UINT(1, entries_in_dir());
-    TEST_ASSERT_EQUAL_INT64(full, file_size(path)); // the file is the same size, whatever it holds
-    struct stat status;
-    TEST_ASSERT_EQUAL_INT(0, stat(path, &status));
-    TEST_ASSERT_EQUAL_HEX(0600, status.st_mode & 0777);
-}
-
-static void test_save_to_missing_directory_fails(void) {
-    gchar *nowhere = g_build_filename(dir, "missing", "state", nullptr);
-    struct wall wall;
-    saved_wall(&wall);
-    const struct weather_state weather = saved_weather();
-    start_capture();
-    const bool saved = record_save(nowhere, &wall, &weather);
-    finish_capture(captured, sizeof captured);
-    TEST_ASSERT_FALSE(saved);
-    gchar *expected =
-            g_strdup_printf("<3>can't save the state to %s: %s\n", nowhere, strerror(ENOENT));
-    TEST_ASSERT_EQUAL_STRING(expected, captured);
-    TEST_ASSERT_EQUAL_UINT(0, entries_in_dir());
-    g_free(expected);
-    g_free(nowhere);
 }
 
 static void test_error_is_kept_without_logging_it_again(void) {
@@ -941,21 +481,6 @@ static void test_log_line_says_no_panel_and_nothing_drawn(void) {
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_save_then_restore_round_trips_with_glass_unknown);
-    RUN_TEST(test_save_then_restore_without_phrase_request_or_weather);
-    RUN_TEST(test_longest_phrase_round_trips);
-    RUN_TEST(test_restore_ignores_old_program_file);
-    RUN_TEST(test_restore_ignores_truncated_file);
-    RUN_TEST(test_restore_ignores_longer_file);
-    RUN_TEST(test_restore_ignores_corrupt_file);
-    RUN_TEST(test_restore_ignores_unusable_values);
-    RUN_TEST(test_restore_ignores_json_that_isnt_an_object);
-    RUN_TEST(test_restore_ignores_unusable_full_refresh);
-    RUN_TEST(test_restore_ignores_unusable_weather);
-    RUN_TEST(test_restore_ignores_unterminated_json);
-    RUN_TEST(test_restore_missing_file_is_quiet);
-    RUN_TEST(test_save_leaves_no_temp_file);
-    RUN_TEST(test_save_to_missing_directory_fails);
     RUN_TEST(test_error_is_kept_without_logging_it_again);
     RUN_TEST(test_kept_error_keeps_whole_characters);
     RUN_TEST(test_report_json_matches_old_shape);

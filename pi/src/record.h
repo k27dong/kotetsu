@@ -7,18 +7,12 @@
 #include "config.h"
 #include "draw/frame.h"
 #include "screen/screen.h"
-#include "weather.h"
 
 struct record_state {
     char last_error[128];
     int64_t reported_too_long_id;
 };
 
-// fills the wall and the weather report from the file; the glass comes back unknown
-[[nodiscard]] bool record_restore(const char *path, struct wall *wall,
-                                  struct weather_state *weather);
-[[nodiscard]] bool record_save(const char *path, const struct wall *wall,
-                               const struct weather_state *weather);
 // keeps it for the next report; the caller has logged it where it happened
 void record_error(struct record_state *state, const char *text);
 

@@ -21,6 +21,7 @@
 #include "shared/dashboard.h"
 #include "shared/log.h"
 #include "shared/time.h"
+#include "state.h"
 #include "warnings.h"
 #include "weather.h"
 
@@ -326,7 +327,7 @@ static struct outcome output(struct screen *screen, const struct config *config,
             log_warning("phrase %" PRId64 " has %d characters the font lacks", missing_glyphs_id,
                         drawn->missing_glyphs);
         }
-        if (!record_save(config->state_path, &state->wall, &state->weather)) {
+        if (!state_save(config->state_path, &state->wall, &state->weather)) {
             record_error(&state->record, "state save failed");
         }
     }
@@ -397,10 +398,14 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     struct screen *screen = screen_open();
-    struct state state = {.weather = {.eaqi = -1}, .wall = screen_new_wall()};
-    if (record_restore(config.state_path, &state.wall, &state.weather)) {
+    const struct saved_state saved = state_restore(config.state_path);
+    if (saved.ok) {
         log_info("restored the saved state from %s", config.state_path);
     }
+    struct state state = {
+            .weather = {.have_report = saved.have_weather, .report = saved.weather, .eaqi = -1},
+            .wall = saved.wall,
+    };
     if (!stop_on(SIGTERM) || !stop_on(SIGINT)) {
         return EXIT_FAILURE;
     }
