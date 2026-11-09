@@ -45,30 +45,6 @@ bool frame_is_black(const struct frame *frame, int x, int y) {
     return (frame->bits[y * ROW_BYTES + x / 8] & (0x80 >> (x % 8))) == 0;
 }
 
-static cairo_surface_t *surface_for(const struct frame *frame) {
-    /* make a surface of one byte per pixel, which Cairo saves as a grey PNG */
-    cairo_surface_t *surface =
-            cairo_image_surface_create(CAIRO_FORMAT_A8, SCREEN_WIDTH, SCREEN_HEIGHT);
-    const cairo_status_t status = cairo_surface_status(surface);
-    if (status != CAIRO_STATUS_SUCCESS) {
-        log_error("can't create a surface for the frame: %s", cairo_status_to_string(status));
-        cairo_surface_destroy(surface);
-        return nullptr;
-    }
-
-    /* paint each pixel: 0 for black, 255 for white */
-    cairo_surface_flush(surface);
-    uint8_t *pixels = cairo_image_surface_get_data(surface);
-    const int stride = cairo_image_surface_get_stride(surface);
-    for (int y = 0; y < SCREEN_HEIGHT; y++) {
-        for (int x = 0; x < SCREEN_WIDTH; x++) {
-            pixels[y * stride + x] = frame_is_black(frame, x, y) ? 0 : 255;
-        }
-    }
-    cairo_surface_mark_dirty(surface);
-    return surface;
-}
-
 static cairo_status_t append_png(void *closure, const unsigned char *data, unsigned int length) {
     struct png *png = closure;
     size_t grown_length;
@@ -86,12 +62,30 @@ static cairo_status_t append_png(void *closure, const unsigned char *data, unsig
 }
 
 struct png frame_encode_png(const struct frame *frame) {
-    cairo_surface_t *surface = surface_for(frame);
-    if (surface == nullptr) {
+    /* make a grey surface */
+    cairo_surface_t *surface =
+            cairo_image_surface_create(CAIRO_FORMAT_A8, SCREEN_WIDTH, SCREEN_HEIGHT);
+    cairo_status_t status = cairo_surface_status(surface);
+    if (status != CAIRO_STATUS_SUCCESS) {
+        log_error("can't create a surface for the frame: %s", cairo_status_to_string(status));
+        cairo_surface_destroy(surface);
         return (struct png){};
     }
+
+    /* paint each pixel */
+    cairo_surface_flush(surface);
+    uint8_t *pixels = cairo_image_surface_get_data(surface);
+    const int stride = cairo_image_surface_get_stride(surface);
+    for (int y = 0; y < SCREEN_HEIGHT; y++) {
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            pixels[y * stride + x] = frame_is_black(frame, x, y) ? 0 : 255;
+        }
+    }
+    cairo_surface_mark_dirty(surface);
+
+    /* encode it as PNG */
     struct png png = {};
-    const cairo_status_t status = cairo_surface_write_to_png_stream(surface, append_png, &png);
+    status = cairo_surface_write_to_png_stream(surface, append_png, &png);
     cairo_surface_destroy(surface);
     if (status != CAIRO_STATUS_SUCCESS) {
         log_error("can't encode the frame as PNG: %s", cairo_status_to_string(status));

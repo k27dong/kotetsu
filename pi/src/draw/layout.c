@@ -118,11 +118,6 @@ struct counter {
     PangoLayout *unit;
 };
 
-struct greeting {
-    enum greeting_icon icon;
-    const char *text;
-};
-
 struct drawing *draw_open(const char *font_dir) {
     /* a fontconfig of the two files alone, so nothing else on the system is ever drawn */
     FcConfig *config = FcConfigCreate();
@@ -347,7 +342,7 @@ static void draw_counter_number(cairo_t *cr, PangoContext *context, struct count
 }
 
 static void draw_counter_tile(cairo_t *cr, PangoContext *context, struct counter counter,
-                              struct greeting greeting) {
+                              enum greeting_icon icon, const char *greeting) {
     /* a black tile with the counter in white along its top */
     set_ink(cr, INK_BLACK);
     fill_rounded_rect(cr, (cairo_rectangle_t){TILE_LEFT, TILE_TOP, TILE_WIDTH, TILE_HEIGHT},
@@ -363,26 +358,13 @@ static void draw_counter_tile(cairo_t *cr, PangoContext *context, struct counter
     g_object_unref(number);
 
     /* the greeting's icon and text along its bottom */
-    icons_draw_greeting(cr, greeting.icon, COUNTER_TEXT_LEFT, TILE_ICON_TOP);
+    icons_draw_greeting(cr, icon, COUNTER_TEXT_LEFT, TILE_ICON_TOP);
     PangoLayout *text =
-            shrunk_to_fit(context, (struct shrinkable){"greeting", LABEL, LINE_SIZE_MIN},
-                          greeting.text, TILE_RIGHT_LIMIT - GREETING_LEFT);
+            shrunk_to_fit(context, (struct shrinkable){"greeting", LABEL, LINE_SIZE_MIN}, greeting,
+                          TILE_RIGHT_LIMIT - GREETING_LEFT);
     typeset_show(cr, text, GREETING_LEFT, LINE_BASELINE);
     g_object_unref(text);
     set_ink(cr, INK_BLACK);
-}
-
-static void draw_counter(cairo_t *cr, PangoContext *context, int counter_days,
-                         const struct greeting *greeting) {
-    char days[16];
-    snprintf(days, sizeof days, "%d", counter_days);
-    const struct counter counter = {days, typeset_line(context, LABEL, COUNTER_UNIT)};
-    if (greeting != nullptr) {
-        draw_counter_tile(cr, context, counter, *greeting);
-    } else {
-        draw_counter_number(cr, context, counter);
-    }
-    g_object_unref(counter.unit);
 }
 
 static bool has_text(const char *text) {
@@ -423,8 +405,17 @@ struct draw_result draw(struct drawing *drawing, const struct draw_input *input,
     cairo_fill(cr);
     draw_date(cr, context, &input->date);
     draw_weather(cr, context, &input->weather);
-    const struct greeting greeting = {input->greeting_icon, input->greeting};
-    draw_counter(cr, context, input->date.counter_days, input->show_greeting ? &greeting : nullptr);
+
+    /* counter or greeting tile */
+    char days[16];
+    snprintf(days, sizeof days, "%d", input->date.counter_days);
+    const struct counter counter = {days, typeset_line(context, LABEL, COUNTER_UNIT)};
+    if (input->show_greeting) {
+        draw_counter_tile(cr, context, counter, input->greeting_icon, input->greeting);
+    } else {
+        draw_counter_number(cr, context, counter);
+    }
+    g_object_unref(counter.unit);
 
     /* the frame, unless Cairo gave up somewhere along the way */
     const cairo_status_t status = cairo_status(cr);
