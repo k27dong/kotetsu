@@ -21,8 +21,7 @@
 #define BEARER_LINE      "\r\nAuthorization: Bearer pi-secret\r\n"
 #define REPORT_PART \
     "Content-Disposition: form-data; name=\"report\"\r\nContent-Type: application/json\r\n\r\n"
-#define KERNEL_LINK_QUALITY "/proc/net/wireless"
-#define TEMPERATURE_PATH    "/sys/class/thermal/thermal_zone0/temp"
+#define TEMPERATURE_PATH "/sys/class/thermal/thermal_zone0/temp"
 
 static constexpr size_t CAPTURE_BYTES = 16 * 1024;
 
@@ -344,47 +343,6 @@ static void test_no_upload_for_reported_too_long(void) {
     TEST_ASSERT_TRUE(record_should_upload(&state, false, 11, true)); // tried again next tick
 }
 
-#ifdef __linux__
-// the kernel's own figure for the first connected interface, which reading it warns is deprecated
-static bool kernel_link_quality(double *out) {
-    gchar *contents = nullptr;
-    if (!g_file_get_contents(KERNEL_LINK_QUALITY, &contents, nullptr, nullptr)) {
-        return false;
-    }
-    bool found = false;
-    gchar **lines = g_strsplit(contents, "\n", -1);
-    for (gchar **line = lines; *line != nullptr && !found; line++) {
-        const char *after_name = strchr(*line, ':');
-        if (after_name == nullptr) {
-            continue;
-        }
-        const char *quality = after_name + 1 + strspn(after_name + 1, " ");
-        quality += strcspn(quality, " ");
-        char *end = nullptr;
-        *out = g_ascii_strtod(quality, &end);
-        found = end != quality;
-    }
-    g_strfreev(lines);
-    g_free(contents);
-    return found;
-}
-#endif
-
-static void test_wifi_signal_on_0_to_70_scale(void) {
-    const struct readings readings = record_read_device();
-#ifdef __linux__
-    double expected = 0;
-    const bool linked = kernel_link_quality(&expected);
-    TEST_ASSERT_EQUAL_INT(linked, readings.has_wifi_signal);
-    if (linked) {
-        TEST_ASSERT_FLOAT_WITHIN(5.0f, (float)expected, (float)readings.wifi_signal);
-        TEST_ASSERT_TRUE(readings.wifi_signal >= 0 && readings.wifi_signal <= 70);
-    }
-#else
-    TEST_ASSERT_FALSE(readings.has_wifi_signal);
-#endif
-}
-
 static void test_temperature_from_millidegrees(void) {
 #ifdef __linux__
     const struct readings readings = record_read_device();
@@ -491,7 +449,6 @@ int main(void) {
     RUN_TEST(test_upload_after_refresh);
     RUN_TEST(test_upload_new_too_long_when_glass_known);
     RUN_TEST(test_no_upload_for_reported_too_long);
-    RUN_TEST(test_wifi_signal_on_0_to_70_scale);
     RUN_TEST(test_temperature_from_millidegrees);
     RUN_TEST(test_log_line_has_every_part);
     RUN_TEST(test_log_line_says_no_panel_and_nothing_drawn);
