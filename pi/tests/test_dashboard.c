@@ -31,10 +31,11 @@ static enum dashboard_status log_answer(long status, const char *body) {
 }
 
 static void test_answer_is_logged_once_with_its_error_field(void) {
+    /* log the error field */
     TEST_ASSERT_EQUAL_INT(DASHBOARD_UNAUTHORIZED, log_answer(401, "{\"error\":\"bad key\"}"));
     TEST_ASSERT_EQUAL_STRING("<3>" URL " answered 401: bad key\n", captured);
 
-    // no JSON, no error field and an error that isn't text each log the status alone
+    /* log the status alone */
     TEST_ASSERT_EQUAL_INT(DASHBOARD_UNREACHABLE, log_answer(502, "<html>Bad Gateway</html>"));
     TEST_ASSERT_EQUAL_STRING("<3>" URL " answered 502\n", captured);
     TEST_ASSERT_EQUAL_INT(DASHBOARD_BAD_RESPONSE, log_answer(404, "{}"));

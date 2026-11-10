@@ -10,6 +10,7 @@ enum dashboard_status {
     DASHBOARD_NO_PHRASE,
 };
 
-// for an answer other than the one hoped for: logs it with its error field, and names the problem
+// logs an unexpected answer with its error field, and names its problem
 enum dashboard_status dashboard_log_answer(const char *url, const struct http_response *response);
-const char *dashboard_problem(enum dashboard_status status); // nullptr for DASHBOARD_OK
+// nullptr for DASHBOARD_OK
+const char *dashboard_problem(enum dashboard_status status);

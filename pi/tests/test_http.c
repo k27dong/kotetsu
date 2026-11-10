@@ -197,7 +197,7 @@ static void test_get_refuses_a_bad_url(void) {
 static void test_get_without_server_is_not_ok(void) {
     int port = 0;
     const int listener = fake_listen(&port);
-    TEST_ASSERT_EQUAL_INT(0, close(listener)); // the port is free again, so connecting is refused
+    TEST_ASSERT_EQUAL_INT(0, close(listener)); // connecting to the freed port is refused
     gchar *url = g_strdup_printf("http://127.0.0.1:%d/api/pi/now", port);
     struct http_response response = http_get(url, "pi-secret");
     assert_not_ok(&response);
@@ -230,7 +230,7 @@ static void test_get_caps_a_chunked_body_at_one_mebibyte(void) {
 
 static void test_get_gives_up_on_silent_server(void) {
     int port = 0;
-    const int listener = fake_listen(&port); // never accepts, so nothing ever answers
+    const int listener = fake_listen(&port); // it listens but never accepts
     gchar *url = g_strdup_printf("http://127.0.0.1:%d/api/pi/now", port);
     const int64_t start_ms = monotonic_ms();
     struct http_response response = http_get(url, "pi-secret");
@@ -260,6 +260,7 @@ static int look_up_hanging_host_in_a_batch(void) {
 }
 
 static void assert_gives_up_on_hanging_dns(const char *child_flag) {
+    /* build the hanging resolver */
     gchar *dir = g_dir_make_tmp("kotetsu-dns-XXXXXX", nullptr);
     TEST_ASSERT_NOT_NULL(dir);
     gchar *library = g_build_filename(dir, "hanging_dns.so", nullptr);
@@ -274,21 +275,26 @@ static void assert_gives_up_on_hanging_dns(const char *child_flag) {
     TEST_ASSERT_TRUE(g_spawn_sync(nullptr, build, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
                                   nullptr, nullptr, &status, nullptr));
     TEST_ASSERT_TRUE(g_spawn_check_wait_status(status, nullptr));
+
+    /* preload it ahead of ASan */
     gchar **environment = g_environ_setenv(g_get_environ(), PRELOAD_VARIABLE, library, TRUE);
-    // AddressSanitizer refuses to start when another library is preloaded ahead of it
     environment = g_environ_setenv(environment, "ASAN_OPTIONS", "verify_asan_link_order=0", TRUE);
+
+    /* run a child lookup */
     gchar *child[] = {(gchar *)test_program, (gchar *)child_flag, nullptr};
     gchar *output = nullptr;
     TEST_ASSERT_TRUE(g_spawn_sync(nullptr, child, environment, G_SPAWN_DEFAULT, nullptr, nullptr,
                                   &output, nullptr, &status, nullptr));
-    // removed before any assertion can end the test
+
+    /* clean up before asserting */
     const bool removed = g_remove(library) == 0 && g_rmdir(dir) == 0;
+
+    /* check the connect timeout applied */
     TEST_ASSERT_TRUE(g_spawn_check_wait_status(status, nullptr));
     gchar *rest = nullptr;
     const gint64 ok = g_ascii_strtoll(output, &rest, 10);
     const gint64 elapsed_ms = g_ascii_strtoll(rest, nullptr, 10);
     TEST_ASSERT_EQUAL_INT64(0, ok);
-    // the lookup counts toward the connect timeout
     TEST_ASSERT_GREATER_OR_EQUAL_INT64(CONNECT_TIMEOUT_MS - 500, elapsed_ms);
     TEST_ASSERT_LESS_THAN_INT64(CONNECT_TIMEOUT_MS + 2'000, elapsed_ms);
     TEST_ASSERT_TRUE(removed);
@@ -341,7 +347,7 @@ static void test_batch_sends_bearer_only_where_given(void) {
 static void test_batch_failure_stays_with_its_request(void) {
     int port = 0;
     const int listener = fake_listen(&port);
-    TEST_ASSERT_EQUAL_INT(0, close(listener)); // the port is free again, so connecting is refused
+    TEST_ASSERT_EQUAL_INT(0, close(listener)); // connecting to the freed port is refused
     gchar *a_url = g_strconcat(server.base, "/a", nullptr);
     gchar *closed_url = g_strdup_printf("http://127.0.0.1:%d/x", port);
     const struct http_request requests[] = {{.url = a_url}, {.url = closed_url}};
@@ -365,7 +371,7 @@ static void test_batch_failure_stays_with_its_request(void) {
 static void test_batch_waits_for_silent_servers_once(void) {
     int first_port = 0;
     int second_port = 0;
-    const int first_listener = fake_listen(&first_port); // never accepts, so nothing ever answers
+    const int first_listener = fake_listen(&first_port); // it listens but never accepts
     const int second_listener = fake_listen(&second_port);
     gchar *first_url = g_strdup_printf("http://127.0.0.1:%d/x", first_port);
     gchar *a_url = g_strconcat(server.base, "/a", nullptr);

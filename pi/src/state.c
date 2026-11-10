@@ -24,7 +24,7 @@ static constexpr size_t STATE_JSON_BYTES = 16'384; // fits the longest phrase ev
 static constexpr uint64_t CHECKSUM_START = 0xcbf2'9ce4'8422'2325; // FNV-1a, 64-bit
 static constexpr uint64_t CHECKSUM_PRIME = 0x100'0000'01b3;
 
-struct state_file { // bytes only, so the layout has no padding
+struct state_file { // only byte fields, leaving no padding
     char magic[4];
     uint8_t version;
     uint8_t frame[FRAME_BYTES];
@@ -120,11 +120,13 @@ static bool is_intact(const char *path, const struct state_file *file, size_t le
 }
 
 static bool restore_json(const char *path, const cJSON *root, struct saved_state *state) {
-    /* the glass phrase */
+    /* check it is an object */
     if (!cJSON_IsObject(root)) {
         log_warning("ignoring the saved state %s: its JSON isn't an object", path);
         return false;
     }
+
+    /* read the glass phrase */
     int64_t phrase_id = 0;
     const char *phrase_text = "";
     if (json_member(root, "phraseId") != nullptr) {
@@ -138,7 +140,7 @@ static bool restore_json(const char *path, const cJSON *root, struct saved_state
         }
     }
 
-    /* full refresh and clean-up minute */
+    /* read full refresh and clean-up */
     int64_t full_refresh = 0;
     const cJSON *saved_full_refresh = json_member(root, "fullRefresh");
     if (saved_full_refresh != nullptr && !json_whole_number(saved_full_refresh, &full_refresh)) {
@@ -152,7 +154,7 @@ static bool restore_json(const char *path, const cJSON *root, struct saved_state
         return false;
     }
 
-    /* the last weather report */
+    /* read the weather report */
     const cJSON *saved_weather = json_member(root, "weather");
     int64_t fetched_at = 0;
     int64_t now_c = 0;
@@ -169,7 +171,7 @@ static bool restore_json(const char *path, const cJSON *root, struct saved_state
         return false;
     }
 
-    /* all good, so keep them */
+    /* keep them all */
     state->wall.phrase_id = phrase_id;
     memcpy(state->wall.phrase_text, phrase_text, strlen(phrase_text) + 1);
     state->wall.full_refresh_done = full_refresh;
@@ -191,7 +193,7 @@ struct saved_state state_restore(const char *path) {
     /* start from a new wall */
     struct saved_state saved = {.wall = screen_new_wall()};
 
-    /* read the file */
+    /* read and check the file */
     struct state_file file;
     size_t length = 0;
     if (!file_read(path, &file, sizeof file, &length)) {
@@ -208,15 +210,15 @@ struct saved_state state_restore(const char *path) {
         return saved;
     }
 
-    /* JSON part, all or nothing */
+    /* read the JSON part */
     cJSON *root = cJSON_ParseWithLength(file.json, sizeof file.json);
-    const bool restored = restore_json(path, root, &saved);
+    const bool restored = restore_json(path, root, &saved); // all of it or none
     cJSON_Delete(root);
     if (!restored) {
         return saved;
     }
 
-    /* frame and refresh history */
+    /* read frame and refresh history */
     memcpy(saved.wall.frame.bits, file.frame, sizeof saved.wall.frame.bits);
     int32_t partials_since_full = 0;
     memcpy(&partials_since_full, file.partials_since_full, sizeof partials_since_full);

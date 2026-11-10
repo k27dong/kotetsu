@@ -64,7 +64,7 @@ void tearDown(void) {
         }
         g_dir_close(entries);
     }
-    if (g_rmdir(dir) != 0) { // no asserts: after a failed test, Unity stops at the first one
+    if (g_rmdir(dir) != 0) { // not an assert, which would cut tearDown short
         fprintf(stderr, "can't remove %s\n", dir);
     }
     g_free(path);
@@ -280,7 +280,7 @@ static void test_save_then_restore_round_trips_with_glass_unknown(void) {
     TEST_ASSERT_EQUAL_INT(660, wall->cleanup_minute);
     TEST_ASSERT_EQUAL_INT(3, wall->partials_since_full);
     TEST_ASSERT_EQUAL_INT64(at(NOON), wall->last_refresh);
-    TEST_ASSERT_EQUAL_INT(0, wall->date.year); // not saved: these start as screen_new_wall has them
+    TEST_ASSERT_EQUAL_INT(0, wall->date.year); // unsaved fields start as in screen_new_wall
     TEST_ASSERT_EQUAL_INT(REFRESH_NONE, wall->last_kind);
     TEST_ASSERT_EQUAL_INT64(0, wall->last_tick);
     TEST_ASSERT_FALSE(wall->cleanup_due);
@@ -457,7 +457,7 @@ static void test_restore_ignores_unusable_weather(void) {
 }
 
 static void test_restore_ignores_unterminated_json(void) {
-    char *area = g_malloc(JSON_AREA_BYTES); // no NUL and no end, so parsing reaches the area's edge
+    char *area = g_malloc(JSON_AREA_BYTES); // with no NUL or end, parsing reaches the edge
     memset(area, 'a', JSON_AREA_BYTES);
     static const char start[] = "{\"cleanupMinute\":660,\"pad\":\"";
     memcpy(area, start, strlen(start));
@@ -488,7 +488,7 @@ static void test_save_leaves_no_temp_file(void) {
     const struct weather_state nothing = starting_weather();
     TEST_ASSERT_TRUE(state_save(path, &wall, &nothing));
     TEST_ASSERT_EQUAL_UINT(1, entries_in_dir());
-    TEST_ASSERT_EQUAL_INT64(full, file_size(path)); // the file is the same size, whatever it holds
+    TEST_ASSERT_EQUAL_INT64(full, file_size(path)); // the size never varies with the contents
     struct stat status;
     TEST_ASSERT_EQUAL_INT(0, stat(path, &status));
     TEST_ASSERT_EQUAL_HEX(0600, status.st_mode & 0777);

@@ -1,3 +1,4 @@
+/* time: Warsaw dates and minutes, ISO 8601, the synced clock and the tick */
 #include "shared/time.h"
 
 #include <errno.h>
@@ -60,7 +61,7 @@ static bool read_char(const char **cursor, char expected) {
 }
 
 static bool read_offset(const char **cursor, int *offset_seconds) {
-    /* read Z for UTC, or the sign of an offset */
+    /* read Z or a sign */
     if (read_char(cursor, 'Z')) {
         *offset_seconds = 0;
         return true;
@@ -74,7 +75,7 @@ static bool read_offset(const char **cursor, int *offset_seconds) {
         return false;
     }
 
-    /* read the hours and minutes after the sign */
+    /* read hours and minutes */
     int hours = 0;
     int minutes = 0;
     if (!read_digits(cursor, 2, &hours) || !read_char(cursor, ':') ||
@@ -86,7 +87,7 @@ static bool read_offset(const char **cursor, int *offset_seconds) {
 }
 
 bool time_parse_iso8601(const char *text, time_t *out) {
-    /* read the date and the time to the minute */
+    /* read date, hour and minute */
     const char *cursor = text;
     int year = 0;
     int month = 0;
@@ -101,7 +102,7 @@ bool time_parse_iso8601(const char *text, time_t *out) {
         return false;
     }
 
-    /* read the seconds and milliseconds, when given */
+    /* read optional seconds and milliseconds */
     int second = 0;
     int milliseconds = 0;
     if (read_char(&cursor, ':') &&
@@ -110,13 +111,13 @@ bool time_parse_iso8601(const char *text, time_t *out) {
         return false;
     }
 
-    /* read the offset, which ends the text */
+    /* read the offset */
     int offset_seconds = 0;
     if (!read_offset(&cursor, &offset_seconds) || *cursor != '\0') {
         return false;
     }
 
-    /* refuse a time or a day that doesn't exist; timegm would move 02-30 on to March */
+    /* refuse impossible times */
     if (hour > 23 || minute > 59 || second > 59) {
         return false;
     }
@@ -128,10 +129,12 @@ bool time_parse_iso8601(const char *text, time_t *out) {
             .tm_min = minute,
             .tm_sec = second,
     };
-    const time_t moment = timegm(&fields);
+    const time_t moment = timegm(&fields); // it moves 02-30 on into March
     if (fields.tm_year != year - 1900 || fields.tm_mon != month - 1 || fields.tm_mday != day) {
         return false;
     }
+
+    /* take off the offset */
     *out = moment - offset_seconds;
     return true;
 }
@@ -143,7 +146,7 @@ bool time_format_iso8601(time_t moment, char *out, size_t size) {
 }
 
 bool time_clock_synced(void) {
-    /* look for the file timesyncd writes once the clock is synchronised */
+    /* look for timesyncd's flag */
     struct stat status;
     if (stat(TIMESYNC_SYNCHRONIZED, &status) == 0) {
         return true;
@@ -152,7 +155,7 @@ bool time_clock_synced(void) {
         return false;
     }
 
-    /* without timesyncd, the system keeps its own clock */
+    /* trust a clock without timesyncd */
     if (errno == ENOENT) {
         return true;
     }
@@ -161,6 +164,7 @@ bool time_clock_synced(void) {
 }
 
 struct timespec time_left_in_tick(struct timespec started, struct timespec now, int tick_seconds) {
+    /* subtract the time taken */
     struct timespec left = {
             .tv_sec = started.tv_sec + tick_seconds - now.tv_sec,
             .tv_nsec = started.tv_nsec - now.tv_nsec,
@@ -169,6 +173,8 @@ struct timespec time_left_in_tick(struct timespec started, struct timespec now, 
         left.tv_sec -= 1;
         left.tv_nsec += NANOSECONDS_PER_SECOND;
     }
+
+    /* stop at zero */
     if (left.tv_sec < 0) {
         return (struct timespec){};
     }

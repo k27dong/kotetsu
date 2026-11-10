@@ -1,3 +1,4 @@
+/* reading JSON: an object's members, and whole numbers kept exact */
 #include "shared/json.h"
 
 #include <stdint.h>

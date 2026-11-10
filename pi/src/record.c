@@ -1,3 +1,4 @@
+/* the record: the screen report and its upload, and the tick's journal line */
 #include "record.h"
 
 #include <errno.h>
@@ -46,11 +47,11 @@ struct record_state record_keep_error(struct record_state record, const char *te
 }
 
 struct readings record_read_device(void) {
-    /* the Wi-Fi link's quality, when there is a link */
+    /* read the Wi-Fi signal */
     const struct wifi_signal wifi = wifi_read_signal();
     struct readings readings = {.has_wifi_signal = wifi.ok, .wifi_signal = wifi.quality};
 
-    /* the SoC's temperature, which the kernel gives in millidegrees */
+    /* read the SoC temperature */
     char text[TEMPERATURE_TEXT_BYTES];
     size_t length = 0;
     if (!file_read(TEMPERATURE_PATH, text, sizeof text - 1, &length)) {
@@ -59,6 +60,8 @@ struct readings record_read_device(void) {
         }
         return readings;
     }
+
+    /* convert it to degrees */
     text[length] = '\0';
     char *end = nullptr;
     const long millidegrees = strtol(text, &end, 10);
@@ -95,13 +98,13 @@ static void add_number_or_null(cJSON *object, const char *key, bool present, dou
 
 bool record_report_json(const struct report *report, const struct readings *readings, char *out,
                         size_t size) {
-    /* a report goes with a refresh, done now or before */
+    /* check there was a refresh */
     if (report->refresh == REFRESH_NONE) {
         log_error("a screen report needs the refresh that was done");
         return false;
     }
 
-    /* the refresh, and what it showed */
+    /* add what was refreshed */
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "refresh", report->refresh == REFRESH_FULL ? "full" : "partial");
     add_time(root, "at", report->at);
@@ -114,12 +117,12 @@ bool record_report_json(const struct report *report, const struct readings *read
     add_ids(root, "tooLong", report->too_long_id);
     add_ids(root, "missingGlyphs", report->missing_glyphs_id);
 
-    /* how the Pi is doing */
+    /* add the readings */
     add_number_or_null(root, "wifiSignal", readings->has_wifi_signal, readings->wifi_signal);
     add_number_or_null(root, "piTemperatureC", readings->has_pi_temperature,
                        readings->pi_temperature_c);
 
-    /* the last error, cut to the characters the dashboard takes */
+    /* add the last error */
     if (report->last_error == nullptr) {
         cJSON_AddNullToObject(root, "lastError");
     } else {
@@ -143,19 +146,20 @@ bool record_report_json(const struct report *report, const struct readings *read
 
 bool record_should_upload(const struct record_state *state, bool refreshed, int64_t too_long_id,
                           bool glass_known) {
-    // the dashboard takes a too-long phrase off the wall once told; the picture is the glass's
-    return refreshed ||
-           (too_long_id != 0 && too_long_id != state->reported_too_long_id && glass_known);
+    const bool new_too_long = too_long_id != 0 && too_long_id != state->reported_too_long_id;
+    return refreshed || (new_too_long && glass_known); // so the dashboard can drop it
 }
 
 struct upload_result record_upload(const struct config *config, const struct frame *frame,
                                    const struct report *report) {
-    /* the report, with how the Pi is doing, and the picture */
+    /* build the report */
     const struct readings readings = record_read_device();
     char json[REPORT_JSON_BYTES];
     if (!record_report_json(report, &readings, json, sizeof json)) {
         return (struct upload_result){};
     }
+
+    /* encode the picture */
     const struct png png = frame_encode_png(frame);
     if (!png.ok) {
         return (struct upload_result){.error = "PNG encoding failed"};
@@ -175,7 +179,7 @@ struct upload_result record_upload(const struct config *config, const struct fra
             http_put_multipart(url, config->pi_key, parts, sizeof parts / sizeof *parts);
     free(png.data);
 
-    /* any answer but a stored screen names the problem */
+    /* name any problem */
     const bool stored = response.ok && response.status == HTTP_NO_CONTENT;
     enum dashboard_status problem = DASHBOARD_UNREACHABLE;
     if (response.ok && !stored) {
@@ -197,26 +201,26 @@ struct record_state record_after_upload(struct record_state record,
     if (upload->ok) {
         record.last_error[0] = '\0';
         record.reported_too_long_id = too_long_id;
-    } else if (upload->error[0] != '\0') { // a report that couldn't be built has no error to keep
+    } else if (upload->error[0] != '\0') { // empty when the report couldn't be built
         record = record_keep_error(record, upload->error);
     }
     return record;
 }
 
 void record_log_tick(const struct tick_summary *tick) {
-    /* a tick that drew nothing has nothing more to tell */
+    /* say nothing was drawn */
     if (!tick->drawn) {
         log_info("%s; %s; nothing drawn; no refresh; no upload", tick->dashboard, tick->weather);
         return;
     }
 
-    /* the phrase drawn */
+    /* name the phrase */
     char phrase[TICK_PART_BYTES] = "no phrase";
     if (tick->phrase_id != 0) {
         snprintf(phrase, sizeof phrase, "phrase %" PRId64, tick->phrase_id);
     }
 
-    /* the refresh decided, and how it went */
+    /* describe the refresh */
     char refresh[TICK_PART_BYTES];
     const char *reason = screen_reason_text(tick->decision.reason);
     if (tick->decision.kind == REFRESH_NONE) {
@@ -229,7 +233,7 @@ void record_log_tick(const struct tick_summary *tick) {
                                   : "done (no panel)");
     }
 
-    /* one line for the whole tick */
+    /* log the whole tick */
     log_info("%s; %s; %s%s, %d missing glyph%s; %s; %s", tick->dashboard, tick->weather, phrase,
              tick->too_long ? " instead of a too-long one" : "", tick->missing_glyphs,
              tick->missing_glyphs == 1 ? "" : "s", refresh, tick->upload);

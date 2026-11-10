@@ -72,9 +72,8 @@ static void *write_lines(void *argument) {
 }
 
 static void test_lines_from_threads_never_mix(void) {
-    // a file rather than a pipe: nothing reads while the threads write, so a pipe would fill up
     gchar *path = nullptr;
-    const int file = g_file_open_tmp("kotetsu-log-XXXXXX", &path, nullptr);
+    const int file = g_file_open_tmp("kotetsu-log-XXXXXX", &path, nullptr); // a pipe would fill up
     TEST_ASSERT_NOT_EQUAL_INT(-1, file);
     TEST_ASSERT_EQUAL_INT(0, fcntl(file, F_SETFL, O_APPEND));
     const int original_stderr = dup(STDERR_FILENO);

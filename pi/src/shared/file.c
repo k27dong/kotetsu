@@ -1,3 +1,4 @@
+/* files: read whole, and replaced in one step */
 #include "shared/file.h"
 
 #include <dirent.h>
@@ -12,6 +13,7 @@
 static constexpr size_t PATH_BYTES = 4'096; // the longest path Linux takes
 
 bool file_read(const char *path, void *out, size_t size, size_t *length) {
+    /* read up to size bytes */
     FILE *file = fopen(path, "rb");
     if (file == nullptr) {
         return false;
@@ -21,6 +23,8 @@ bool file_read(const char *path, void *out, size_t size, size_t *length) {
     const bool failed = ferror(file) != 0;
     const int reason = errno;
     fclose(file);
+
+    /* check it was all read */
     if (larger || failed) {
         errno = larger ? EFBIG : reason;
         return false;
@@ -30,11 +34,11 @@ bool file_read(const char *path, void *out, size_t size, size_t *length) {
 }
 
 static bool sync_directory_of(const char *path) {
-    /* find the directory: "." for a bare name, "/" for a file at the root */
-    char directory[PATH_BYTES] = ".";
+    /* find the directory */
+    char directory[PATH_BYTES] = "."; // a bare name's directory
     const char *slash = strrchr(path, '/');
     if (slash != nullptr) {
-        const size_t length = slash == path ? 1 : (size_t)(slash - path);
+        const size_t length = slash == path ? 1 : (size_t)(slash - path); // keep the root's slash
         if (length >= sizeof directory) {
             errno = ENAMETOOLONG;
             return false;
@@ -43,7 +47,7 @@ static bool sync_directory_of(const char *path) {
         directory[length] = '\0';
     }
 
-    /* flush its entries to the disk */
+    /* sync its entries */
     DIR *opened = opendir(directory);
     if (opened == nullptr) {
         return false;
@@ -57,19 +61,19 @@ static bool sync_directory_of(const char *path) {
 }
 
 bool file_write_atomic(const char *path, const void *data, size_t length) {
-    /* open a temporary file beside the target, so the rename stays on one file system */
+    /* open a temporary file */
     char temporary[PATH_BYTES];
     const int printed = snprintf(temporary, sizeof temporary, "%s.XXXXXX", path);
     if (printed < 0 || (size_t)printed >= sizeof temporary) {
         errno = ENAMETOOLONG;
         return false;
     }
-    const int file = mkstemp(temporary);
+    const int file = mkstemp(temporary); // beside the target, as rename can't cross file systems
     if (file < 0) {
         return false;
     }
 
-    /* write every byte and flush it to the disk */
+    /* write and flush it */
     const uint8_t *bytes = data;
     size_t sent = 0;
     while (sent < length) {
@@ -83,7 +87,7 @@ bool file_write_atomic(const char *path, const void *data, size_t length) {
     const int write_error = errno;
     const bool closed = close(file) == 0;
 
-    /* replace the target in one step, or remove the temporary file */
+    /* replace the target */
     if (!flushed || !closed || rename(temporary, path) != 0) {
         const int reason = flushed ? errno : write_error;
         unlink(temporary);
@@ -91,6 +95,6 @@ bool file_write_atomic(const char *path, const void *data, size_t length) {
         return false;
     }
 
-    /* sync the directory too, or a power cut can bring the old file back */
-    return sync_directory_of(path);
+    /* sync the directory */
+    return sync_directory_of(path); // a power cut could otherwise bring the old file back
 }

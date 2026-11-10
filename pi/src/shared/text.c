@@ -1,3 +1,4 @@
+/* UTF-8 text: validity, and equality ignoring case and composition */
 #include "shared/text.h"
 
 #include <stddef.h>
@@ -19,10 +20,13 @@ static gchar *fold(const char *text) {
 }
 
 bool text_equal_folded(const char *a, const char *b) {
+    /* refuse text that isn't UTF-8 */
     if (!g_utf8_validate(a, -1, nullptr) || !g_utf8_validate(b, -1, nullptr)) {
         log_error("can't compare text that isn't UTF-8");
         return false;
     }
+
+    /* compare the folded forms */
     gchar *folded_a = fold(a);
     gchar *folded_b = fold(b);
     const bool equal = strcmp(folded_a, folded_b) == 0;

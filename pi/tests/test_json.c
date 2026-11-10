@@ -28,9 +28,10 @@ static void test_whole_number_accepts_2_pow_53_minus_1(void) {
 }
 
 static void test_whole_number_rejects_2_pow_53(void) {
-    // 2^53 + 1 reads as the double 2^53, so 2^53 itself can't be trusted
-    const char *const texts[] = {"9007199254740992", "-9007199254740992", "9007199254740993",
-                                 "-9007199254740993", "1e400"};
+    const char *const texts[] = {
+            "9007199254740992", // 2^53 + 1 reads as this double too
+            "-9007199254740992", "9007199254740993", "-9007199254740993", "1e400",
+    };
     for (size_t i = 0; i < sizeof texts / sizeof texts[0]; i++) {
         cJSON *number = parse(texts[i]);
         int64_t value = 7;

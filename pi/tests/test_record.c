@@ -105,7 +105,7 @@ static void test_error_is_kept_without_logging_it_again(void) {
     start_capture();
     state = record_keep_error(state, "panel refresh failed");
     finish_capture(captured, sizeof captured);
-    TEST_ASSERT_EQUAL_STRING("", captured); // the caller logged it where it happened
+    TEST_ASSERT_EQUAL_STRING("", captured); // the caller logged it at the source
     TEST_ASSERT_EQUAL_STRING("panel refresh failed", state.last_error);
 
     gchar *long_error = g_strnfill(300, 'e');
@@ -118,9 +118,9 @@ static void test_error_is_kept_without_logging_it_again(void) {
 }
 
 static void test_kept_error_keeps_whole_characters(void) {
-    /* 错 is 3 bytes: after 124 bytes it fits the 127 kept, after 125 or 126 it would be cut */
+    /* cut before a split character */
     const size_t lead_bytes[] = {124, 125, 126};
-    const size_t kept_bytes[] = {127, 125, 126};
+    const size_t kept_bytes[] = {127, 125, 126}; // 3-byte 错 fits the 127 only after 124 bytes
     for (size_t i = 0; i < G_N_ELEMENTS(lead_bytes); i++) {
         GString *text = g_string_new(nullptr);
         for (size_t j = 0; j < lead_bytes[i]; j++) {
@@ -137,7 +137,7 @@ static void test_kept_error_keeps_whole_characters(void) {
         TEST_ASSERT_EQUAL_MEMORY(text->str, state.last_error, kept_bytes[i]);
         TEST_ASSERT_TRUE(g_utf8_validate(state.last_error, -1, nullptr));
 
-        /* the report carries the kept text exactly */
+        /* report the kept text */
         const struct report report = {
                 .refresh = REFRESH_FULL, .at = at(NOON), .last_error = state.last_error};
         const struct readings unmeasured = {};
@@ -150,7 +150,7 @@ static void test_kept_error_keeps_whole_characters(void) {
         g_string_free(text, TRUE);
     }
 
-    /* a report's own error that ends in a broken character loses that character */
+    /* drop a broken last character */
     const struct report broken = {.refresh = REFRESH_FULL, .at = at(NOON), .last_error = "ab\xe9"};
     const struct readings unmeasured = {};
     char json[1024];

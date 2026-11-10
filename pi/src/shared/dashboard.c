@@ -1,3 +1,4 @@
+/* the dashboard's problems: from an answer's status to a text */
 #include "shared/dashboard.h"
 
 #include <stdlib.h>
@@ -9,14 +10,14 @@
 #include "shared/log.h"
 
 enum dashboard_status dashboard_log_answer(const char *url, const struct http_response *response) {
-    /* the dashboard says why in an error field, when the answer is its own */
+    /* log status and error field */
     cJSON *root = cJSON_Parse(response->body);
     const char *error = cJSON_GetStringValue(json_member(root, "error"));
     log_error("%s answered %ld%s%s", url, response->status, error != nullptr ? ": " : "",
               error != nullptr ? error : "");
     cJSON_Delete(root);
 
-    /* what the status means */
+    /* name the problem */
     if (response->status == 401 || response->status == 403) {
         return DASHBOARD_UNAUTHORIZED;
     }

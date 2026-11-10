@@ -1,3 +1,4 @@
+/* HTTP requests through libcurl, one at a time or several at once */
 #include "shared/http.h"
 
 #include <stddef.h>
@@ -26,12 +27,15 @@ struct transfer {
 };
 
 static size_t append_body(char *chunk, size_t size, size_t count, void *context) {
+    /* grow the body */
     struct http_response *response = context;
     const size_t chunk_length = size * count;
     char *grown = realloc(response->body, response->length + chunk_length + 1);
     if (grown == nullptr) {
         return 0; // curl then fails the transfer
     }
+
+    /* append the chunk */
     memcpy(grown + response->length, chunk, chunk_length);
     response->body = grown;
     response->length += chunk_length;
@@ -41,16 +45,18 @@ static size_t append_body(char *chunk, size_t size, size_t count, void *context)
 
 static bool add_parts(curl_mime *form, const struct http_part *parts, size_t count) {
     for (size_t i = 0; i < count; i++) {
+        /* add the part */
         curl_mimepart *field = curl_mime_addpart(form);
         if (field == nullptr || curl_mime_name(field, parts[i].name) != CURLE_OK ||
             curl_mime_type(field, parts[i].content_type) != CURLE_OK ||
             curl_mime_data(field, (const char *)parts[i].data, parts[i].length) != CURLE_OK) {
             return false;
         }
-        // form parsers read a part without a filename as text, which garbles binary data
+
+        /* keep binary parts binary */
         const bool binary = strncmp(parts[i].content_type, "text/", strlen("text/")) != 0 &&
                             strcmp(parts[i].content_type, "application/json") != 0;
-        if (binary && curl_mime_filename(field, parts[i].name) != CURLE_OK) {
+        if (binary && curl_mime_filename(field, parts[i].name) != CURLE_OK) { // else read as text
             return false;
         }
     }
@@ -155,6 +161,7 @@ void http_response_free(struct http_response *response) {
 }
 
 struct http_batch http_get_batch(const struct http_request *requests, size_t count) {
+    /* check the count */
     if (count == 0 || count > HTTP_BATCH_MAX) {
         log_error("a batch holds 1 to %zu requests, not %zu", HTTP_BATCH_MAX, count);
         abort();
