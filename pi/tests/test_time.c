@@ -151,11 +151,9 @@ static void test_time_left_borrows_nanoseconds(void) {
 }
 
 static void test_clock_synced_matches_timesyncd(void) {
-#ifdef __APPLE__
-    TEST_ASSERT_TRUE(time_clock_synced());
-#else
-    TEST_ASSERT_EQUAL(access("/run/systemd/timesync/synchronized", F_OK) == 0, time_clock_synced());
-#endif
+    const bool flagged = access("/run/systemd/timesync/synchronized", F_OK) == 0;
+    const bool timesyncd = access("/run/systemd/timesync", F_OK) == 0;
+    TEST_ASSERT_EQUAL(flagged || !timesyncd, time_clock_synced()); // no timesyncd: trusted
 }
 
 int main(void) {
