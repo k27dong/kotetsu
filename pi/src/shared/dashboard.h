@@ -11,6 +11,7 @@ enum dashboard_status {
 };
 
 // logs an unexpected answer with its error field, and names its problem
-enum dashboard_status dashboard_log_answer(const char *url, const struct http_response *response);
+[[nodiscard]] enum dashboard_status dashboard_log_answer(const char *url,
+                                                         const struct http_response *response);
 // nullptr for DASHBOARD_OK
 const char *dashboard_problem(enum dashboard_status status);

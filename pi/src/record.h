@@ -34,11 +34,11 @@ struct readings {
     double pi_temperature_c;
 };
 
-struct readings record_read_device(void);
+[[nodiscard]] struct readings record_read_device(void);
 [[nodiscard]] bool record_report_json(const struct report *report, const struct readings *readings,
                                       char *out, size_t size);
-bool record_should_upload(const struct record_state *state, bool refreshed, int64_t too_long_id,
-                          bool glass_known);
+bool record_should_upload(const struct record_state *state, bool refresh_decided,
+                          int64_t too_long_id, bool glass_known);
 
 struct upload_result {
     bool ok;

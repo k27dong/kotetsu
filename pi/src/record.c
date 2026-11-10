@@ -144,10 +144,10 @@ bool record_report_json(const struct report *report, const struct readings *read
     return printed;
 }
 
-bool record_should_upload(const struct record_state *state, bool refreshed, int64_t too_long_id,
-                          bool glass_known) {
+bool record_should_upload(const struct record_state *state, bool refresh_decided,
+                          int64_t too_long_id, bool glass_known) {
     const bool new_too_long = too_long_id != 0 && too_long_id != state->reported_too_long_id;
-    return refreshed || (new_too_long && glass_known); // so the dashboard can drop it
+    return refresh_decided || (new_too_long && glass_known); // so the dashboard can drop it
 }
 
 struct upload_result record_upload(const struct config *config, const struct frame *frame,
