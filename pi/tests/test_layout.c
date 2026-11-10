@@ -193,8 +193,6 @@ struct glyph_box {
     int height;
 };
 
-// Draws the number alone through the same pipeline, so the box is what survives
-// the 50% cut.
 static struct glyph_box number_ink(double size, const char *days) {
     cairo_surface_t *surface =
             cairo_image_surface_create(CAIRO_FORMAT_A8, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -206,7 +204,7 @@ static struct glyph_box number_ink(double size, const char *days) {
     pango_layout_get_pixel_extents(layout, nullptr, &logical);
     typeset_show(cr, layout, 100, 300);
     cairo_surface_flush(surface);
-    struct frame frame;
+    struct frame frame; // the ink that survives the half-coverage cut
     frame_from_a8(cairo_image_surface_get_data(surface), cairo_image_surface_get_stride(surface),
                   &frame);
     const struct ink_box box = ink_in(&frame, 0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);

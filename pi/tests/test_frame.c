@@ -29,10 +29,9 @@ static uint8_t *blank_coverage(void) {
     return coverage;
 }
 
-// fixtures/frame_pattern.png is this pattern, encoded by the old program's frame_encode_png
 static void fill_pattern(struct frame *frame) {
     for (size_t i = 0; i < FRAME_BYTES; i++) {
-        frame->bits[i] = (uint8_t)(i * 37 + i / 100 * 11);
+        frame->bits[i] = (uint8_t)(i * 37 + i / 100 * 11); // as in fixtures/frame_pattern.png
     }
 }
 

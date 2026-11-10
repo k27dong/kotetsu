@@ -6,7 +6,7 @@
 static constexpr size_t FRAME_BYTES = 48'000;
 
 struct frame {
-    uint8_t bits[FRAME_BYTES]; // rows of 800 pixels, the leftmost in the high bit; 1 is white
+    uint8_t bits[FRAME_BYTES]; // rows of 800 pixels, leftmost in the high bit, 1 for white
 };
 
 struct png {

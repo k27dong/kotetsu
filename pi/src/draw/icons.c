@@ -1,3 +1,4 @@
+/* the weather and greeting icons, drawn as Cairo paths */
 #include "draw/icons.h"
 
 #include <math.h>
@@ -58,8 +59,11 @@ static void cloud(cairo_t *cr, double left, double top, double width) {
 }
 
 static void sun(cairo_t *cr, double x, double y, double radius) {
+    /* the disc */
     circle(cr, x, y, radius);
     cairo_fill(cr);
+
+    /* its rays */
     cairo_set_line_width(cr, radius * 0.40);
     for (int ray = 0; ray < SUN_RAYS; ray++) {
         cairo_save(cr);
@@ -112,7 +116,7 @@ static void erase_stroke(cairo_t *cr, double width) {
 }
 
 void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t box) {
-    /* where drops and flakes fall, across the unit square */
+    /* where drops and flakes fall */
     static const struct columns three = {.count = 3, .x = {0.30, 0.50, 0.70}};
     static const struct columns four = {.count = 4, .x = {0.22, 0.40, 0.58, 0.76}};
     static const struct columns sides = {.count = 2, .x = {0.30, 0.70}};
@@ -120,26 +124,24 @@ void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t b
     static const struct columns upper = {.count = 3, .x = {0.26, 0.50, 0.74}};
     static const struct columns lower = {.count = 2, .x = {0.38, 0.62}};
 
-    /* draw in a unit square over the box, with round ends on every stroke */
+    /* draw in a unit square */
     cairo_save(cr);
     cairo_translate(cr, box.x, box.y);
     cairo_scale(cr, box.width, box.height);
     cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
 
-    /* the picture, in black with white gaps */
+    /* draw the icon */
     switch (icon) {
-    /* the sun, alone or behind a cloud with a gap around it */
     case WEATHER_ICON_SUN:
         sun(cr, 0.50, 0.50, 0.21);
         break;
     case WEATHER_ICON_PARTLY:
         sun(cr, 0.34, 0.34, 0.15);
         cloud_path(cr, 0.14, 0.40, 0.84);
-        erase_stroke(cr, 0.09);
+        erase_stroke(cr, 0.09); // leaves a white gap around the cloud
         cloud(cr, 0.14, 0.40, 0.84);
         break;
 
-    /* a cloud, and fog's two bars under it */
     case WEATHER_ICON_CLOUD:
         cloud(cr, 0.02, 0.19, 0.96);
         break;
@@ -149,7 +151,6 @@ void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t b
         line(cr, (struct point){0.24, 0.88}, (struct point){0.76, 0.88}, 0.08);
         break;
 
-    /* rain: longer and more drops as it gets heavier, or a bolt */
     case WEATHER_ICON_DRIZZLE:
         upper_cloud(cr);
         rain(cr, three, (struct drops){0.72, 0.84, 0.075});
@@ -167,7 +168,6 @@ void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t b
         bolt(cr);
         break;
 
-    /* snow: flakes in one or two rows, or sleet's flake between two drops */
     case WEATHER_ICON_SLEET:
         upper_cloud(cr);
         rain(cr, sides, (struct drops){0.70, 0.96, 0.08});
@@ -183,12 +183,11 @@ void icons_draw_weather(cairo_t *cr, enum weather_icon icon, cairo_rectangle_t b
         flakes(cr, lower, 0.93);
         break;
 
-    /* offline: a cloud struck through, with a gap around the stroke */
     case WEATHER_ICON_OFFLINE:
         cloud(cr, 0.02, 0.19, 0.96);
         cairo_move_to(cr, 0.16, 0.14);
         cairo_line_to(cr, 0.84, 0.90);
-        erase_stroke(cr, 0.20);
+        erase_stroke(cr, 0.20); // leaves a white gap around the stroke
         line(cr, (struct point){0.16, 0.14}, (struct point){0.84, 0.90}, 0.08);
         break;
     }
@@ -231,12 +230,12 @@ static void star_path(cairo_t *cr, struct point centre, double outer, double inn
 }
 
 void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double y) {
-    /* draw in a unit square at the icon's corner */
+    /* draw in a unit square */
     cairo_save(cr);
     cairo_translate(cr, x, y);
     cairo_scale(cr, GREETING_ICON_SIZE, GREETING_ICON_SIZE);
 
-    /* the shape as one path; only the rings stroke it themselves */
+    /* build the shape's path */
     switch (icon) {
     case GREETING_HEART:
         heart_path(cr);
@@ -245,10 +244,10 @@ void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double 
         cairo_set_line_width(cr, 0.11);
         circle(cr, 0.34, 0.56, 0.26);
         circle(cr, 0.66, 0.56, 0.26);
-        cairo_stroke(cr);
+        cairo_stroke(cr); // leaves no path for the fill
         break;
 
-    /* the cake: two tiers, a candle and its flame */
+    /* two tiers, candle and flame */
     case GREETING_CAKE:
         cairo_rectangle(cr, 0.04, 0.64, 0.92, 0.32);
         cairo_rectangle(cr, 0.20, 0.42, 0.60, 0.22);
@@ -260,7 +259,7 @@ void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double 
         cairo_restore(cr);
         break;
 
-    /* the cat: a head with an ear on each side */
+    /* a head and two ears */
     case GREETING_CAT:
         circle(cr, 0.50, 0.60, 0.36);
         cairo_move_to(cr, 0.17, 0.44);
@@ -273,7 +272,6 @@ void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double 
         cairo_close_path(cr);
         break;
 
-    /* two hearts, and the star */
     case GREETING_HEARTS:
         placed_heart(cr, 0.00, 0.02, 0.52);
         placed_heart(cr, 0.44, 0.40, 0.56);
@@ -283,7 +281,7 @@ void icons_draw_greeting(cairo_t *cr, enum greeting_icon icon, double x, double 
         break;
     }
 
-    /* fill what the path holds */
+    /* fill the shape */
     cairo_fill(cr);
     cairo_restore(cr);
 }
