@@ -31,9 +31,8 @@ struct http_batch {
     struct http_response responses[HTTP_BATCH_MAX]; // in the order of the requests
 };
 
-// one curl handle per call, so threads can make requests at once; main runs curl_global_init
+// one curl handle per call; main runs curl_global_init
 struct http_response http_get(const char *url, const char *bearer);
-struct http_response http_get_ok(const char *url); // only a 200 is ok; any other status is logged
 struct http_response http_put_multipart(const char *url, const char *bearer,
                                         const struct http_part *parts, size_t count);
 void http_response_free(struct http_response *response);

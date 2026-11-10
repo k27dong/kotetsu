@@ -15,6 +15,5 @@ struct warnings {
     char label[WARNING_LABEL_BYTES]; // the top one in force: highest level, then latest published
 };
 
-struct warnings warnings_fetch(time_t now);
 // {"message": …} means none; any other non-list is an error
 [[nodiscard]] struct warnings warnings_read(const struct http_response *response, time_t now);

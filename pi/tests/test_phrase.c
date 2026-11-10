@@ -1,13 +1,9 @@
 #include <stddef.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include <curl/curl.h>
 #include <glib.h>
 
-#include "config.h"
-#include "fake_server.h"
 #include "phrase.h"
 #include "shared/dashboard.h"
 #include "shared/http.h"
@@ -20,7 +16,6 @@
 #define A_TICK_LATER "2026-10-26T12:00:15+01:00"
 #define PI_NOW       "fixtures/pi_now.json"
 #define NOW_URL      "http://127.0.0.1:8787" PHRASE_NOW_PATH
-#define BEARER_LINE  "\r\nAuthorization: Bearer pi-secret\r\n"
 #define PLAIN_PHRASE \
     "\"phrase\":{\"id\":7,\"text\":\"新的一天\",\"until\":\"2026-10-27T03:00:00+01:00\"}"
 #define CLEANUP_MINUTE ",\"cleanupMinute\":600"
@@ -68,14 +63,6 @@ static gchar *answer_with_text(const char *text) {
 static gchar *answer_with_greeting(const char *greeting) {
     return g_strdup_printf(
             "{" PLAIN_PHRASE ",\"greeting\":%s,\"full_refresh\":null" CLEANUP_MINUTE "}", greeting);
-}
-
-static struct config config_for(const char *dashboard_url) {
-    struct config config = {.ok = true, .pi_key = "pi-secret"};
-    TEST_ASSERT_LESS_THAN_size_t(
-            sizeof config.dashboard_url,
-            g_strlcpy(config.dashboard_url, dashboard_url, sizeof config.dashboard_url));
-    return config;
 }
 
 static struct http_response answer(long status, const char *body) {
@@ -326,24 +313,6 @@ static void test_greeting_of_63_bytes_accepted_64_rejected(void) {
     g_free(longest);
 }
 
-static void test_fetch_asks_for_now_with_the_key(void) {
-    const struct fake_route routes[] = {{"/api/pi/now", 200, PI_NOW, 0}};
-    struct fake_server server;
-    fake_server_start(&server, routes, G_N_ELEMENTS(routes));
-    const struct config config = config_for(server.base);
-    struct phrase_state state = {};
-    const struct phrase phrase = phrase_fetch(&state, &config, at(NOON));
-    TEST_ASSERT_EQUAL_INT(DASHBOARD_OK, phrase.status);
-    TEST_ASSERT_EQUAL_size_t(1, fake_server_request_count(&server));
-    fake_assert_request_line(&server, 0, "GET /api/pi/now HTTP/1.1");
-    const GString *request = fake_server_request(&server, 0);
-    TEST_ASSERT_NOT_NULL(memmem(request->str, request->len, BEARER_LINE, strlen(BEARER_LINE)));
-    gchar *lowered = g_ascii_strdown(request->str, (gssize)request->len);
-    TEST_ASSERT_NULL(strstr(lowered, "x-kotetsu-now"));
-    g_free(lowered);
-    fake_server_stop(&server);
-}
-
 static void test_200_sets_answer_and_answered_today(void) {
     const struct phrase_state state = read_pi_now((struct phrase_state){}, at(NOON));
     TEST_ASSERT_EQUAL_INT(DASHBOARD_OK, state.status);
@@ -446,9 +415,6 @@ static void test_answered_today_false_next_warsaw_day(void) {
 }
 
 int main(void) {
-    if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) { // the program's main does this too
-        return EXIT_FAILURE;
-    }
     UNITY_BEGIN();
     RUN_TEST(test_parse_reads_every_field);
     RUN_TEST(test_parse_accepts_nulls);
@@ -460,7 +426,6 @@ int main(void) {
     RUN_TEST(test_unknown_greeting_icon_rejected);
     RUN_TEST(test_six_greeting_icons);
     RUN_TEST(test_greeting_of_63_bytes_accepted_64_rejected);
-    RUN_TEST(test_fetch_asks_for_now_with_the_key);
     RUN_TEST(test_200_sets_answer_and_answered_today);
     RUN_TEST(test_new_answer_replaces_the_last_one);
     RUN_TEST(test_401_keeps_previous_answer);
@@ -469,7 +434,5 @@ int main(void) {
     RUN_TEST(test_garbage_is_bad_response_and_keeps_previous);
     RUN_TEST(test_no_server_is_unreachable);
     RUN_TEST(test_answered_today_false_next_warsaw_day);
-    const int failures = UNITY_END();
-    curl_global_cleanup();
-    return failures;
+    return UNITY_END();
 }

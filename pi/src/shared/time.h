@@ -22,3 +22,6 @@ bool time_same_date(struct civil_date a, struct civil_date b);
 [[nodiscard]] bool time_parse_iso8601(const char *text, time_t *out); // needs date, time and offset
 [[nodiscard]] bool time_format_iso8601(time_t moment, char *out, size_t size);
 bool time_clock_synced(void); // no /run/systemd/timesync means no timesyncd, so synced
+// zero once the tick has run its length
+[[nodiscard]] struct timespec time_left_in_tick(struct timespec started, struct timespec now,
+                                                int tick_seconds);

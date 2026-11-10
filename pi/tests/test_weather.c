@@ -188,14 +188,6 @@ static struct weather_state fresh_state(int code, int now_c, int low_c, int high
     };
 }
 
-static struct weather_fetched everything_fetched(time_t now) {
-    return (struct weather_fetched){
-            .forecast = {.ok = true, .report = {now, 11, 3, 12, 3}},
-            .air = {.ok = true, .eaqi = 75},
-            .warnings = {.ok = true, .any = true, .label = "大风预警"},
-    };
-}
-
 static void test_word_and_icon_for_each_code(void) {
     const struct {
         int code;
@@ -724,45 +716,6 @@ static void test_failed_forecast_still_reads_air_and_warnings(void) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(captured, "IMGW's warnings aren't a JSON array"), captured);
 }
 
-static void test_due_first_tick_then_30_min_after_each_attempt(void) {
-    struct weather_state state = {.eaqi = -1};
-    const time_t first = at("2026-10-28T19:00:00+01:00");
-    TEST_ASSERT_TRUE(weather_due(&state, first));
-
-    const struct weather_fetched failed = {};
-    weather_absorb(&state, &failed, first);
-    TEST_ASSERT_FALSE(weather_due(&state, first));
-    TEST_ASSERT_FALSE(weather_due(&state, first + FETCH_PERIOD_SECONDS - 1));
-    TEST_ASSERT_TRUE(weather_due(&state, first + FETCH_PERIOD_SECONDS));
-
-    const time_t second = first + FETCH_PERIOD_SECONDS + 15;
-    const struct weather_fetched good = everything_fetched(second);
-    weather_absorb(&state, &good, second);
-    TEST_ASSERT_FALSE(weather_due(&state, second + FETCH_PERIOD_SECONDS - 1));
-    TEST_ASSERT_TRUE(weather_due(&state, second + FETCH_PERIOD_SECONDS));
-}
-
-static void test_open_meteo_failures_count_and_reset(void) {
-    struct weather_state state = {.eaqi = -1};
-    const time_t start = at("2026-10-28T19:00:00+01:00");
-    const struct weather_fetched nothing = {};
-    weather_absorb(&state, &nothing, start);
-    TEST_ASSERT_EQUAL_INT(1, state.open_meteo_failures);
-
-    struct weather_fetched from_met = everything_fetched(start + FETCH_PERIOD_SECONDS);
-    from_met.forecast.from_met = true;
-    weather_absorb(&state, &from_met, start + FETCH_PERIOD_SECONDS);
-    TEST_ASSERT_EQUAL_INT(2, state.open_meteo_failures);
-    TEST_ASSERT_TRUE(state.have_report);
-    weather_absorb(&state, &from_met, start + 2 * FETCH_PERIOD_SECONDS);
-    TEST_ASSERT_EQUAL_INT(3, state.open_meteo_failures);
-
-    const struct weather_fetched from_open_meteo =
-            everything_fetched(start + 3 * FETCH_PERIOD_SECONDS);
-    weather_absorb(&state, &from_open_meteo, start + 3 * FETCH_PERIOD_SECONDS);
-    TEST_ASSERT_EQUAL_INT(0, state.open_meteo_failures);
-}
-
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_word_and_icon_for_each_code);
@@ -792,7 +745,5 @@ int main(void) {
     RUN_TEST(test_met_norway_is_asked_from_the_second_failure_in_a_row);
     RUN_TEST(test_failed_forecast_keeps_report_air_and_warning);
     RUN_TEST(test_failed_forecast_still_reads_air_and_warnings);
-    RUN_TEST(test_due_first_tick_then_30_min_after_each_attempt);
-    RUN_TEST(test_open_meteo_failures_count_and_reset);
     return UNITY_END();
 }

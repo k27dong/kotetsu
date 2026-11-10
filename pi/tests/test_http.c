@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -132,29 +131,6 @@ static void test_error_status_is_a_response(void) {
     TEST_ASSERT_EQUAL_STRING("", response.body);
     http_response_free(&response);
     g_free(url);
-}
-
-static void test_get_ok_passes_200_and_logs_other_statuses_once(void) {
-    gchar *now_url = g_strconcat(server.base, "/api/pi/now", nullptr);
-    gchar *broken_url = g_strconcat(server.base, "/broken", nullptr);
-    char captured[512];
-    start_capture();
-    struct http_response passed = http_get_ok(now_url);
-    struct http_response refused = http_get_ok(broken_url);
-    finish_capture(captured, sizeof captured);
-    TEST_ASSERT_TRUE(passed.ok);
-    TEST_ASSERT_EQUAL_INT64(200, passed.status);
-    gchar *expected_body = fixture("fixtures/pi_now.json");
-    TEST_ASSERT_EQUAL_STRING(expected_body, passed.body);
-    assert_not_ok(&refused);
-    gchar *expected_log = g_strdup_printf("<3>%s answered 500\n", broken_url);
-    TEST_ASSERT_EQUAL_STRING(expected_log, captured);
-    fake_assert_request_line(&server, 1, "GET /broken HTTP/1.1");
-    http_response_free(&passed);
-    g_free(expected_log);
-    g_free(expected_body);
-    g_free(broken_url);
-    g_free(now_url);
 }
 
 static void test_put_multipart_sends_parts(void) {
@@ -327,40 +303,6 @@ static void test_get_gives_up_on_hanging_dns(void) {
     assert_gives_up_on_hanging_dns(LOOK_UP_HANGING_HOST);
 }
 
-struct fetch {
-    const char *url;
-    struct http_response response;
-};
-
-static void *fetch_in_thread(void *argument) {
-    struct fetch *fetch = argument;
-    fetch->response = http_get(fetch->url, "pi-secret");
-    return nullptr;
-}
-
-static void test_two_threads_fetch_at_once(void) {
-    gchar *url = g_strconcat(server.base, "/api/pi/now", nullptr);
-    gchar *expected = fixture("fixtures/pi_now.json");
-    struct fetch fetches[2] = {{.url = url}, {.url = url}};
-    pthread_t threads[2];
-    for (size_t i = 0; i < 2; i++) {
-        TEST_ASSERT_EQUAL_INT(0,
-                              pthread_create(&threads[i], nullptr, fetch_in_thread, &fetches[i]));
-    }
-    for (size_t i = 0; i < 2; i++) {
-        TEST_ASSERT_EQUAL_INT(0, pthread_join(threads[i], nullptr));
-    }
-    for (size_t i = 0; i < 2; i++) {
-        TEST_ASSERT_TRUE(fetches[i].response.ok);
-        TEST_ASSERT_EQUAL_INT64(200, fetches[i].response.status);
-        TEST_ASSERT_EQUAL_STRING(expected, fetches[i].response.body);
-        http_response_free(&fetches[i].response);
-    }
-    TEST_ASSERT_EQUAL_size_t(2, fake_server_request_count(&server));
-    g_free(expected);
-    g_free(url);
-}
-
 static void test_batch_returns_each_answer_in_order(void) {
     gchar *a_url = g_strconcat(server.base, "/a", nullptr);
     gchar *b_url = g_strconcat(server.base, "/b", nullptr);
@@ -500,7 +442,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_get_returns_status_and_body);
     RUN_TEST(test_get_sends_bearer);
     RUN_TEST(test_error_status_is_a_response);
-    RUN_TEST(test_get_ok_passes_200_and_logs_other_statuses_once);
     RUN_TEST(test_put_multipart_sends_parts);
     RUN_TEST(test_requests_carry_no_time_header);
     RUN_TEST(test_get_refuses_a_bad_url);
@@ -509,7 +450,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_get_caps_a_chunked_body_at_one_mebibyte);
     RUN_TEST(test_get_gives_up_on_silent_server);
     RUN_TEST(test_get_gives_up_on_hanging_dns);
-    RUN_TEST(test_two_threads_fetch_at_once);
     RUN_TEST(test_batch_returns_each_answer_in_order);
     RUN_TEST(test_batch_sends_bearer_only_where_given);
     RUN_TEST(test_batch_failure_stays_with_its_request);

@@ -276,52 +276,6 @@ static int met_code(const cJSON *data) {
     return parsed;
 }
 
-struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now) {
-    /* ask Open-Meteo */
-    struct forecast forecast = {};
-    struct http_response answer = http_get_ok(WEATHER_OPEN_METEO_URL);
-    forecast.ok = answer.ok && weather_parse_open_meteo(answer.body, now, &forecast.report);
-    http_response_free(&answer);
-
-    /* MET Norway stands in once Open-Meteo has failed twice in a row, counting this time */
-    if (forecast.ok || state->open_meteo_failures + 1 < OPEN_METEO_FAILURES_BEFORE_MET_NORWAY) {
-        return forecast;
-    }
-    answer = http_get_ok(WEATHER_MET_NORWAY_URL);
-    forecast.ok = answer.ok && weather_parse_met_norway(answer.body, now, &forecast.report);
-    forecast.from_met = forecast.ok;
-    http_response_free(&answer);
-    return forecast;
-}
-
-struct air weather_fetch_air(void) {
-    struct air air = {.eaqi = EAQI_UNKNOWN};
-    struct http_response answer = http_get_ok(WEATHER_AIR_QUALITY_URL);
-    air.ok = answer.ok && weather_parse_eaqi(answer.body, &air.eaqi);
-    http_response_free(&answer);
-    return air;
-}
-
-bool weather_due(const struct weather_state *state, time_t now) {
-    return now >= state->next_fetch;
-}
-
-void weather_absorb(struct weather_state *state, const struct weather_fetched *fetched,
-                    time_t now) {
-    const struct forecast *forecast = &fetched->forecast;
-    state->next_fetch = now + FETCH_PERIOD_SECONDS;
-    state->open_meteo_failures =
-            forecast->ok && !forecast->from_met ? 0 : state->open_meteo_failures + 1;
-    if (!forecast->ok) {
-        return; // all of the last good fetch stays, its air and warning too
-    }
-    state->have_report = true;
-    state->report = forecast->report;
-    state->eaqi = fetched->air.ok ? fetched->air.eaqi : EAQI_UNKNOWN;
-    state->have_warning = fetched->warnings.ok && fetched->warnings.any;
-    memcpy(state->warning, fetched->warnings.label, sizeof state->warning);
-}
-
 struct forecast weather_read_open_meteo(const struct http_response *response, time_t now) {
     struct forecast forecast = {};
     forecast.ok = http_ok(WEATHER_OPEN_METEO_URL, response) &&

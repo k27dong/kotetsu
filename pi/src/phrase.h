@@ -41,14 +41,5 @@ struct phrase_state {
     struct civil_date answered_on;
 };
 
-struct phrase {
-    enum dashboard_status status;
-    bool have_answer;
-    struct phrase_answer answer;
-    bool answered_today;
-};
-
-// keeps the last good answer on failure
-struct phrase phrase_fetch(struct phrase_state *state, const struct config *config, time_t now);
 [[nodiscard]] struct phrase_state phrase_read(struct phrase_state previous, const char *url,
                                               const struct http_response *response, time_t now);

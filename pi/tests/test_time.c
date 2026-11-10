@@ -126,6 +126,30 @@ static void test_format_needs_room_for_the_whole_time(void) {
     TEST_ASSERT_FALSE(time_format_iso8601(at("2026-10-26T12:00:00+01:00"), text, sizeof text - 1));
 }
 
+static void test_time_left_is_the_rest_of_the_tick(void) {
+    const struct timespec started = {.tv_sec = 100};
+    const struct timespec now = {.tv_sec = 104, .tv_nsec = 500'000'000};
+    const struct timespec left = time_left_in_tick(started, now, 15);
+    TEST_ASSERT_EQUAL_INT64(10, left.tv_sec);
+    TEST_ASSERT_EQUAL_INT64(500'000'000, left.tv_nsec);
+}
+
+static void test_time_left_is_zero_after_an_overrun(void) {
+    const struct timespec started = {.tv_sec = 100};
+    const struct timespec now = {.tv_sec = 116};
+    const struct timespec left = time_left_in_tick(started, now, 15);
+    TEST_ASSERT_EQUAL_INT64(0, left.tv_sec);
+    TEST_ASSERT_EQUAL_INT64(0, left.tv_nsec);
+}
+
+static void test_time_left_borrows_nanoseconds(void) {
+    const struct timespec started = {.tv_sec = 100, .tv_nsec = 900'000'000};
+    const struct timespec now = {.tv_sec = 101, .tv_nsec = 100'000'000};
+    const struct timespec left = time_left_in_tick(started, now, 15);
+    TEST_ASSERT_EQUAL_INT64(14, left.tv_sec);
+    TEST_ASSERT_EQUAL_INT64(800'000'000, left.tv_nsec);
+}
+
 static void test_clock_synced_matches_timesyncd(void) {
 #ifdef __APPLE__
     TEST_ASSERT_TRUE(time_clock_synced());
@@ -145,6 +169,9 @@ int main(void) {
     RUN_TEST(test_warsaw_spring_change_2027_03_28);
     RUN_TEST(test_format_matches_old_report);
     RUN_TEST(test_format_needs_room_for_the_whole_time);
+    RUN_TEST(test_time_left_is_the_rest_of_the_tick);
+    RUN_TEST(test_time_left_is_zero_after_an_overrun);
+    RUN_TEST(test_time_left_borrows_nanoseconds);
     RUN_TEST(test_clock_synced_matches_timesyncd);
     return UNITY_END();
 }
