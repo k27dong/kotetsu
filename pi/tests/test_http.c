@@ -16,9 +16,10 @@
 #include "stderr_capture.h"
 #include "unity.h"
 
-#define HANGING_HOST         "dns-hangs.kotetsu.test"
-#define LOOK_UP_HANGING_HOST "--look-up-hanging-host"
-#define USER_AGENT_LINE      "\r\nUser-Agent: kotetsu/2.0 github.com/k27dong/kotetsu\r\n"
+#define HANGING_HOST                    "dns-hangs.kotetsu.test"
+#define LOOK_UP_HANGING_HOST            "--look-up-hanging-host"
+#define LOOK_UP_HANGING_HOST_IN_A_BATCH "--look-up-hanging-host-in-a-batch"
+#define USER_AGENT_LINE                 "\r\nUser-Agent: kotetsu/2.0 github.com/k27dong/kotetsu\r\n"
 
 #ifdef __APPLE__
 #define PRELOAD_VARIABLE "DYLD_INSERT_LIBRARIES"
@@ -37,6 +38,8 @@ static const struct fake_route ROUTES[] = {
         {"/broken", 500, nullptr, 0},
         {"/one-mebibyte", 200, nullptr, ONE_MEBIBYTE},
         {"/over-one-mebibyte", 200, nullptr, ONE_MEBIBYTE + 1},
+        {"/a", 200, "fixtures/pi_now.json", 0},
+        {"/b", 404, nullptr, 0},
 };
 
 static struct fake_server server;
@@ -70,6 +73,18 @@ static void assert_contains(const GString *request, const char *expected) {
 static void assert_lacks(const GString *request, const char *unexpected) {
     TEST_ASSERT_NULL_MESSAGE(memmem(request->str, request->len, unexpected, strlen(unexpected)),
                              unexpected);
+}
+
+static const GString *request_starting(const char *start) {
+    const GString *found = nullptr;
+    for (size_t i = 0; i < fake_server_request_count(&server); i++) {
+        const GString *request = fake_server_request(&server, i);
+        if (g_str_has_prefix(request->str, start)) {
+            found = request;
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(found, start);
+    return found;
 }
 
 static void assert_not_ok(struct http_response *response) {
@@ -259,7 +274,16 @@ static int look_up_hanging_host(void) {
     return EXIT_SUCCESS;
 }
 
-static void test_get_gives_up_on_hanging_dns(void) {
+static int look_up_hanging_host_in_a_batch(void) {
+    const struct http_request request = {.url = "http://" HANGING_HOST "/"};
+    const int64_t start_ms = monotonic_ms();
+    struct http_batch batch = http_get_batch(&request, 1);
+    printf("%d %lld\n", batch.responses[0].ok, (long long)(monotonic_ms() - start_ms));
+    http_batch_free(&batch);
+    return EXIT_SUCCESS;
+}
+
+static void assert_gives_up_on_hanging_dns(const char *child_flag) {
     gchar *dir = g_dir_make_tmp("kotetsu-dns-XXXXXX", nullptr);
     TEST_ASSERT_NOT_NULL(dir);
     gchar *library = g_build_filename(dir, "hanging_dns.so", nullptr);
@@ -277,7 +301,7 @@ static void test_get_gives_up_on_hanging_dns(void) {
     gchar **environment = g_environ_setenv(g_get_environ(), PRELOAD_VARIABLE, library, TRUE);
     // AddressSanitizer refuses to start when another library is preloaded ahead of it
     environment = g_environ_setenv(environment, "ASAN_OPTIONS", "verify_asan_link_order=0", TRUE);
-    gchar *child[] = {(gchar *)test_program, LOOK_UP_HANGING_HOST, nullptr};
+    gchar *child[] = {(gchar *)test_program, (gchar *)child_flag, nullptr};
     gchar *output = nullptr;
     TEST_ASSERT_TRUE(g_spawn_sync(nullptr, child, environment, G_SPAWN_DEFAULT, nullptr, nullptr,
                                   &output, nullptr, &status, nullptr));
@@ -297,6 +321,10 @@ static void test_get_gives_up_on_hanging_dns(void) {
     g_free(compiler);
     g_free(library);
     g_free(dir);
+}
+
+static void test_get_gives_up_on_hanging_dns(void) {
+    assert_gives_up_on_hanging_dns(LOOK_UP_HANGING_HOST);
 }
 
 struct fetch {
@@ -333,12 +361,139 @@ static void test_two_threads_fetch_at_once(void) {
     g_free(url);
 }
 
+static void test_batch_returns_each_answer_in_order(void) {
+    gchar *a_url = g_strconcat(server.base, "/a", nullptr);
+    gchar *b_url = g_strconcat(server.base, "/b", nullptr);
+    const struct http_request requests[] = {{.url = a_url}, {.url = b_url}};
+    struct http_batch batch = http_get_batch(requests, G_N_ELEMENTS(requests));
+    TEST_ASSERT_EQUAL_size_t(2, batch.count);
+    TEST_ASSERT_TRUE(batch.responses[0].ok);
+    TEST_ASSERT_EQUAL_INT64(200, batch.responses[0].status);
+    gchar *expected = fixture("fixtures/pi_now.json");
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), batch.responses[0].length);
+    TEST_ASSERT_EQUAL_STRING(expected, batch.responses[0].body);
+    TEST_ASSERT_TRUE(batch.responses[1].ok);
+    TEST_ASSERT_EQUAL_INT64(404, batch.responses[1].status);
+    http_batch_free(&batch);
+    TEST_ASSERT_NULL(batch.responses[0].body);
+    g_free(expected);
+    g_free(b_url);
+    g_free(a_url);
+}
+
+static void test_batch_sends_bearer_only_where_given(void) {
+    gchar *a_url = g_strconcat(server.base, "/a", nullptr);
+    gchar *b_url = g_strconcat(server.base, "/b", nullptr);
+    const struct http_request requests[] = {{.url = a_url, .bearer = "pi-secret"}, {.url = b_url}};
+    struct http_batch batch = http_get_batch(requests, G_N_ELEMENTS(requests));
+    TEST_ASSERT_TRUE(batch.responses[0].ok);
+    TEST_ASSERT_TRUE(batch.responses[1].ok);
+    assert_contains(request_starting("GET /a HTTP/1.1\r\n"),
+                    "\r\nAuthorization: Bearer pi-secret\r\n");
+    assert_lacks(request_starting("GET /b HTTP/1.1\r\n"), "Authorization:");
+    http_batch_free(&batch);
+    g_free(b_url);
+    g_free(a_url);
+}
+
+static void test_batch_failure_stays_with_its_request(void) {
+    int port = 0;
+    const int listener = fake_listen(&port);
+    TEST_ASSERT_EQUAL_INT(0, close(listener)); // the port is free again, so connecting is refused
+    gchar *a_url = g_strconcat(server.base, "/a", nullptr);
+    gchar *closed_url = g_strdup_printf("http://127.0.0.1:%d/x", port);
+    const struct http_request requests[] = {{.url = a_url}, {.url = closed_url}};
+    char captured[512];
+    start_capture();
+    struct http_batch batch = http_get_batch(requests, G_N_ELEMENTS(requests));
+    finish_capture(captured, sizeof captured);
+    TEST_ASSERT_TRUE(batch.responses[0].ok);
+    TEST_ASSERT_EQUAL_INT64(200, batch.responses[0].status);
+    TEST_ASSERT_FALSE(batch.responses[1].ok);
+    TEST_ASSERT_NULL(batch.responses[1].body);
+    gchar *expected_start = g_strdup_printf("<3>%s: ", closed_url);
+    TEST_ASSERT_TRUE_MESSAGE(g_str_has_prefix(captured, expected_start), captured);
+    TEST_ASSERT_EQUAL_PTR(captured + strlen(captured) - 1, strchr(captured, '\n')); // logged once
+    http_batch_free(&batch);
+    g_free(expected_start);
+    g_free(closed_url);
+    g_free(a_url);
+}
+
+static void test_batch_waits_for_silent_servers_once(void) {
+    int first_port = 0;
+    int second_port = 0;
+    const int first_listener = fake_listen(&first_port); // never accepts, so nothing ever answers
+    const int second_listener = fake_listen(&second_port);
+    gchar *first_url = g_strdup_printf("http://127.0.0.1:%d/x", first_port);
+    gchar *a_url = g_strconcat(server.base, "/a", nullptr);
+    gchar *second_url = g_strdup_printf("http://127.0.0.1:%d/x", second_port);
+    const struct http_request requests[] = {
+            {.url = first_url}, {.url = a_url}, {.url = second_url}};
+    const int64_t start_ms = monotonic_ms();
+    struct http_batch batch = http_get_batch(requests, G_N_ELEMENTS(requests));
+    const int64_t elapsed_ms = monotonic_ms() - start_ms;
+    TEST_ASSERT_GREATER_OR_EQUAL_INT64(TOTAL_TIMEOUT_MS - 500, elapsed_ms);
+    TEST_ASSERT_LESS_THAN_INT64(TOTAL_TIMEOUT_MS + 2'000, elapsed_ms);
+    TEST_ASSERT_FALSE(batch.responses[0].ok);
+    TEST_ASSERT_TRUE(batch.responses[1].ok);
+    TEST_ASSERT_EQUAL_INT64(200, batch.responses[1].status);
+    TEST_ASSERT_FALSE(batch.responses[2].ok);
+    http_batch_free(&batch);
+    g_free(second_url);
+    g_free(a_url);
+    g_free(first_url);
+    TEST_ASSERT_EQUAL_INT(0, close(second_listener));
+    TEST_ASSERT_EQUAL_INT(0, close(first_listener));
+}
+
+static void test_batch_gives_up_on_hanging_dns(void) {
+    assert_gives_up_on_hanging_dns(LOOK_UP_HANGING_HOST_IN_A_BATCH);
+}
+
+static void test_batch_of_one_matches_get(void) {
+    gchar *url = g_strconcat(server.base, "/api/pi/now", nullptr);
+    struct http_response single = http_get(url, "pi-secret");
+    const struct http_request request = {.url = url, .bearer = "pi-secret"};
+    struct http_batch batch = http_get_batch(&request, 1);
+    TEST_ASSERT_TRUE(single.ok);
+    TEST_ASSERT_EQUAL_size_t(1, batch.count);
+    TEST_ASSERT_TRUE(batch.responses[0].ok);
+    TEST_ASSERT_EQUAL_INT64(single.status, batch.responses[0].status);
+    TEST_ASSERT_EQUAL_size_t(single.length, batch.responses[0].length);
+    TEST_ASSERT_EQUAL_STRING(single.body, batch.responses[0].body);
+    TEST_ASSERT_EQUAL_STRING(fake_server_request(&server, 0)->str,
+                             fake_server_request(&server, 1)->str);
+    http_batch_free(&batch);
+    http_response_free(&single);
+    g_free(url);
+}
+
+static void test_http_ok_passes_200_and_logs_other_statuses(void) {
+    const struct http_response answered_200 = {.ok = true, .status = 200};
+    const struct http_response answered_503 = {.ok = true, .status = 503};
+    const struct http_response unanswered = {};
+    char captured[512];
+    start_capture();
+    const bool passed = http_ok("https://example.test/a", &answered_200);
+    const bool refused = http_ok("https://example.test/b", &answered_503);
+    const bool missing = http_ok("https://example.test/c", &unanswered);
+    finish_capture(captured, sizeof captured);
+    TEST_ASSERT_TRUE(passed);
+    TEST_ASSERT_FALSE(refused);
+    TEST_ASSERT_FALSE(missing);
+    TEST_ASSERT_EQUAL_STRING("<3>https://example.test/b answered 503\n", captured);
+}
+
 int main(int argc, char *argv[]) {
     if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) { // the program's main does this too
         return EXIT_FAILURE;
     }
     if (argc == 2 && strcmp(argv[1], LOOK_UP_HANGING_HOST) == 0) {
         return look_up_hanging_host();
+    }
+    if (argc == 2 && strcmp(argv[1], LOOK_UP_HANGING_HOST_IN_A_BATCH) == 0) {
+        return look_up_hanging_host_in_a_batch();
     }
     test_program = argv[0];
     UNITY_BEGIN();
@@ -355,6 +510,13 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_get_gives_up_on_silent_server);
     RUN_TEST(test_get_gives_up_on_hanging_dns);
     RUN_TEST(test_two_threads_fetch_at_once);
+    RUN_TEST(test_batch_returns_each_answer_in_order);
+    RUN_TEST(test_batch_sends_bearer_only_where_given);
+    RUN_TEST(test_batch_failure_stays_with_its_request);
+    RUN_TEST(test_batch_waits_for_silent_servers_once);
+    RUN_TEST(test_batch_gives_up_on_hanging_dns);
+    RUN_TEST(test_batch_of_one_matches_get);
+    RUN_TEST(test_http_ok_passes_200_and_logs_other_statuses);
     const int failures = UNITY_END();
     curl_global_cleanup();
     return failures;
