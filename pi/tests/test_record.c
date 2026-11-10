@@ -368,14 +368,22 @@ static void test_no_upload_for_reported_too_long(void) {
 }
 
 static void test_temperature_from_millidegrees(void) {
-#ifdef __linux__
+    /* read the kernel's own figure */
+    gchar *contents = nullptr;
+    char *end = nullptr;
+    double expected_c = 0;
+    if (g_file_get_contents(TEMPERATURE_PATH, &contents, nullptr, nullptr)) {
+        expected_c = (double)g_ascii_strtoll(contents, &end, 10) / 1'000.0;
+    }
+    const bool parsed = contents != nullptr && end != contents;
+
+    /* compare the reading */
     const struct readings readings = record_read_device();
-    TEST_ASSERT_TRUE(readings.has_pi_temperature);
-    TEST_ASSERT_FLOAT_WITHIN(50.0f, 60.0f, (float)readings.pi_temperature_c);
-#else
-    const struct readings readings = record_read_device();
-    TEST_ASSERT_FALSE(readings.has_pi_temperature);
-#endif
+    TEST_ASSERT_EQUAL_INT(parsed, readings.has_pi_temperature);
+    if (parsed) {
+        TEST_ASSERT_FLOAT_WITHIN(3.0f, (float)expected_c, (float)readings.pi_temperature_c);
+    }
+    g_free(contents);
 }
 
 static void test_readings_carry_the_wifi_signal(void) {
