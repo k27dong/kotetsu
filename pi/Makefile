@@ -1,128 +1,103 @@
-SANITIZE ?= 0
-RELEASE ?= 0
-PREFIX ?= /usr/local
-ifeq ($(SANITIZE),1)
-ifeq ($(RELEASE),1)
-$(error SANITIZE=1 and RELEASE=1 can't be combined)
-endif
-BUILD ?= build-asan
-else ifeq ($(RELEASE),1)
-BUILD ?= build-release
+# kotetsu: the program on the Pi that draws the wall screen.
+# `make help` lists the commands.
+
+PREFIX = /usr/local
+KOTETSU_FONT_DIR = $(CURDIR)/fonts
+
+# The program's files. The panel driver needs Linux; elsewhere a stand-in says there is no panel.
+SRC = src/config.c src/date.c src/lunar_table.c src/phrase.c src/record.c \
+      src/warnings.c src/weather.c \
+      src/draw/frame.c src/draw/icons.c src/draw/layout.c src/draw/typeset.c \
+      src/screen/epd.c src/screen/screen.c \
+      src/shared/dashboard.c src/shared/file.c src/shared/http.c src/shared/json.c \
+      src/shared/log.c src/shared/text.c src/shared/time.c
+TESTS = $(wildcard tests/test_*.c)
+LIBS = pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
+
+ifeq ($(shell uname),Linux)
+  SRC += src/screen/board_linux.c
+  LIBS += libgpiod libnl-genl-3.0
+  HARDENING = -fhardened -mbranch-protection=standard
+  LINK_HARDENING = -Wl,-z,noexecstack -Wl,--as-needed
 else
-BUILD ?= build
+  SRC += src/screen/board_none.c
+  # clang-tidy finds the macOS headers only through SDKROOT
+  export SDKROOT := $(shell xcrun --show-sdk-path)
 endif
 
-SRCS := \
-	src/config.c \
-	src/date.c \
-	src/draw/frame.c \
-	src/draw/icons.c \
-	src/draw/layout.c \
-	src/draw/typeset.c \
-	src/lunar_table.c \
-	src/phrase.c \
-	src/record.c \
-	src/screen/epd.c \
-	src/screen/screen.c \
-	src/shared/dashboard.c \
-	src/shared/file.c \
-	src/shared/http.c \
-	src/shared/json.c \
-	src/shared/log.c \
-	src/shared/text.c \
-	src/shared/time.c \
-	src/warnings.c \
-	src/weather.c
+# The same flags on the Mac and on the Pi; add your own with `make CFLAGS=...`.
+WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvla \
+           -Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough -Werror
+# Library headers come in with -isystem, so warnings inside them can't stop the build.
+LIB_CFLAGS := $(patsubst -I%,-isystem %,$(shell pkg-config --cflags $(LIBS)))
+ALL_CFLAGS = -std=c23 -D_DEFAULT_SOURCE -pthread -O2 -g -Isrc $(WARNINGS) $(HARDENING) \
+             $(LIB_CFLAGS) $(CFLAGS)
+LDLIBS := $(shell pkg-config --libs $(LIBS))
 
-PACKAGES := pangocairo pangoft2 fontconfig glib-2.0 cairo libcurl libcjson
+OBJ = $(SRC:src/%.c=build/%.o)
+TEST_PROGRAMS = $(TESTS:tests/%.c=build/%)
 
-# only Linux has the panel driver (GPIO and SPI) and the Wi-Fi signal reader (nl80211)
-SYSTEM := $(shell uname -s)
-ifeq ($(SYSTEM),Linux)
-SRCS += src/screen/board_linux.c
-PACKAGES += libgpiod libnl-genl-3.0
-else
-SRCS += src/screen/board_none.c
-endif
-ifeq ($(SYSTEM),Darwin)
-SDKROOT ?= $(shell xcrun --show-sdk-path)
-export SDKROOT
-PKG_CONFIG_PATH := $(shell brew --prefix curl)/lib/pkgconfig$(if $(PKG_CONFIG_PATH),:$(PKG_CONFIG_PATH))
-endif
+all: build/kotetsu
 
-# Make 3.81's $(shell) sees only the starting environment, so the path is passed in.
-PKG_CONFIG := PKG_CONFIG_PATH='$(PKG_CONFIG_PATH)' pkg-config
-MISSING_PACKAGES := $(strip $(foreach package,$(PACKAGES), \
-	$(if $(shell $(PKG_CONFIG) --exists $(package) && echo found),,$(package))))
-ifneq ($(MISSING_PACKAGES),)
-$(error pkg-config can't find: $(MISSING_PACKAGES))
-endif
-PACKAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(PACKAGES))
-LDLIBS := $(shell $(PKG_CONFIG) --libs $(PACKAGES))
+build/kotetsu: build/main.o $(OBJ)
+	$(CC) $(ALL_CFLAGS) $(LINK_HARDENING) -o $@ build/main.o $(OBJ) $(LDLIBS)
 
-# glibc hides POSIX functions under -std=c23 unless _DEFAULT_SOURCE is defined.
-CFLAGS := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvla \
-	-Wstrict-prototypes -Wmissing-prototypes -Wformat=2 -Wimplicit-fallthrough \
-	-finput-charset=UTF-8 -fexec-charset=UTF-8 \
-	-D_DEFAULT_SOURCE -pthread -Isrc $(patsubst -I%,-isystem %,$(PACKAGE_CFLAGS)) -MMD -MP
-DEVELOPMENT_CFLAGS := $(CFLAGS) -Werror
-LDFLAGS := -pthread
-ifeq ($(RELEASE),1)
-CFLAGS += -O2 -fstrict-flex-arrays=3
-# guarded to Linux: Apple clang rejects -fhardened and ld64 rejects the GNU ld flags
-ifeq ($(SYSTEM),Linux)
-CFLAGS += -fhardened -mbranch-protection=standard
-LDFLAGS += -Wl,-z,noexecstack -Wl,--as-needed
-endif
-else
-CFLAGS := $(DEVELOPMENT_CFLAGS)
-endif
-ifeq ($(SANITIZE),1)
-CFLAGS += -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
-endif
+build/%.o: src/%.c
+	mkdir -p $(@D)
+	$(CC) $(ALL_CFLAGS) -MMD -MP -c -o $@ $<
 
-OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
-FORMAT_FILES := $(sort $(shell find src -name '*.[ch]'))
+build/tests/%.o: tests/%.c
+	mkdir -p $(@D)
+	$(CC) $(ALL_CFLAGS) -isystem tests/unity -MMD -MP -c -o $@ $<
 
-.PHONY: all lib format format-check tidy check flags install clean
+# Each test is its own program, linked with every file except main.c.
+build/test_%: build/tests/test_%.o $(OBJ) build/unity.o
+	$(CC) $(ALL_CFLAGS) $(LINK_HARDENING) -o $@ $^ $(LDLIBS)
 
-all: $(BUILD)/kotetsu
+# Unity is someone else's code, so its warnings are switched off.
+build/unity.o: tests/unity/unity.c
+	mkdir -p build
+	$(CC) $(ALL_CFLAGS) -w -c -o $@ $<
 
-# the modules without main, for the tests to link
-lib: $(BUILD)/libkotetsu_core.a
+test: $(TEST_PROGRAMS)
+	cd tests && for test in $(TEST_PROGRAMS); do \
+	  TZ=Europe/Warsaw KOTETSU_FONT_DIR=$(KOTETSU_FONT_DIR) ../$$test || exit 1; \
+	done
 
-$(BUILD)/kotetsu: $(BUILD)/main.o $(BUILD)/libkotetsu_core.a
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
-
-$(BUILD)/libkotetsu_core.a: $(OBJS)
-	rm -f $@
-	$(AR) rcs $@ $^
-
-$(BUILD)/%.o: src/%.c
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+lint:
+	clang-format --dry-run --Werror src/*.[ch] src/*/*.[ch] tests/*.[ch]
+	clang-tidy --quiet --warnings-as-errors='*' $(SRC) src/main.c -- $(ALL_CFLAGS)
 
 format:
-	clang-format -i $(FORMAT_FILES)
+	clang-format -i src/*.[ch] src/*/*.[ch] tests/*.[ch]
 
-format-check:
-	clang-format --dry-run --Werror $(FORMAT_FILES)
+# clangd reads the compiler flags from compile_flags.txt, one per line.
+editor:
+	echo $(ALL_CFLAGS) -isystem tests/unity | tr ' ' '\n' > compile_flags.txt
 
-tidy:
-	clang-tidy $(SRCS) src/main.c -- $(DEVELOPMENT_CFLAGS)
-
-check: format-check all
-
-# the flags the tests build with
-flags:
-	@echo 'CFLAGS=$(CFLAGS)'
-	@echo 'LDLIBS=$(LDLIBS)'
-
-install: $(BUILD)/kotetsu
+install: build/kotetsu
 	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 $(BUILD)/kotetsu $(DESTDIR)$(PREFIX)/bin/kotetsu
+	install -m 755 build/kotetsu $(DESTDIR)$(PREFIX)/bin/kotetsu
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf build compile_flags.txt
 
--include $(OBJS:.o=.d) $(BUILD)/main.d
+help:
+	@echo 'make          build build/kotetsu'
+	@echo 'make test     build and run the unit tests (needs the fonts in fonts/)'
+	@echo 'make lint     check formatting and run clang-tidy'
+	@echo 'make format   format the code in place'
+	@echo 'make editor   write compile_flags.txt for clangd'
+	@echo 'make install  install build/kotetsu to $(PREFIX)/bin'
+	@echo 'make clean    delete build/'
+	@echo 'with AddressSanitizer: make clean && make test CFLAGS="-O1 -fsanitize=address,undefined -fno-sanitize-recover=all"'
+
+.PHONY: all test lint format editor install clean help
+
+# A command that fails deletes the half-written file it leaves behind.
+.DELETE_ON_ERROR:
+
+# Test objects stay after make test, so the next run compiles nothing.
+.SECONDARY:
+
+-include $(OBJ:.o=.d) build/main.d $(TESTS:tests/%.c=build/tests/%.d)
