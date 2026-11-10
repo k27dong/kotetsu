@@ -25,7 +25,7 @@ jobs:
           libpango1.0-dev libcairo2-dev libcjson-dev libcurl4-openssl-dev libgpiod-dev
           libnl-genl-3-dev curl unzip tzdata
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Download fonts
         run: |
           set -eu
