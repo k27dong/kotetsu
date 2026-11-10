@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pi-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04-arm
@@ -37,4 +41,4 @@ jobs:
       - name: Build
         run: su ci -c 'make -C pi -j4'
       - name: Test
-        run: su ci -c 'make -C pi test'
+        run: su ci -c 'make -C pi -j4 test'
