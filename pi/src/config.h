@@ -13,8 +13,6 @@ static constexpr size_t PHRASE_TEXT_MAX_BYTES = 2048;
 
 #define STATE_PATH_DEFAULT "/var/lib/kotetsu/state"
 
-#define KOTETSU_VERSION "2.0.0"
-
 static constexpr size_t PI_KEY_MAX_BYTES = 256;
 
 struct config {

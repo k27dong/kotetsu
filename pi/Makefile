@@ -3,6 +3,7 @@
 
 PREFIX = /usr/local
 KOTETSU_FONT_DIR = $(CURDIR)/fonts
+VERSION := $(shell git describe --always --dirty 2>/dev/null || echo unknown)
 
 # The program's files. The panel driver needs Linux; elsewhere a stand-in says there is no panel.
 SRC = src/config.c src/date.c src/lunar_table.c src/phrase.c src/record.c src/state.c \
@@ -31,7 +32,7 @@ WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wvl
 # Library headers come in with -isystem, so warnings inside them can't stop the build.
 LIB_CFLAGS := $(patsubst -I%,-isystem %,$(shell pkg-config --cflags $(LIBS)))
 ALL_CFLAGS = -std=c23 -D_DEFAULT_SOURCE -pthread -O2 -g -Isrc $(WARNINGS) $(HARDENING) \
-             $(LIB_CFLAGS) $(CFLAGS)
+             -DKOTETSU_VERSION='"$(VERSION)"' $(LIB_CFLAGS) $(CFLAGS)
 LDLIBS := $(shell pkg-config --libs $(LIBS))
 
 OBJ = $(SRC:src/%.c=build/%.o)
