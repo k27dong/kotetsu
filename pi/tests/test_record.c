@@ -15,6 +15,7 @@
 #include "shared/time.h"
 #include "stderr_capture.h"
 #include "unity.h"
+#include "wifi.h"
 
 #define NOON             "2026-10-26T12:00:00+01:00"
 #define HALF_PAST_ELEVEN "2026-10-26T11:30:00+01:00"
@@ -377,6 +378,15 @@ static void test_temperature_from_millidegrees(void) {
 #endif
 }
 
+static void test_readings_carry_the_wifi_signal(void) {
+    const struct wifi_signal signal = wifi_read_signal();
+    const struct readings readings = record_read_device();
+    TEST_ASSERT_EQUAL_INT(signal.ok, readings.has_wifi_signal);
+    if (signal.ok) {
+        TEST_ASSERT_FLOAT_WITHIN(5.0f, (float)signal.quality, (float)readings.wifi_signal);
+    }
+}
+
 static void test_log_line_has_every_part(void) {
     const struct tick_summary refreshed = {
             .dashboard = "dashboard ok",
@@ -474,6 +484,7 @@ int main(void) {
     RUN_TEST(test_upload_new_too_long_when_glass_known);
     RUN_TEST(test_no_upload_for_reported_too_long);
     RUN_TEST(test_temperature_from_millidegrees);
+    RUN_TEST(test_readings_carry_the_wifi_signal);
     RUN_TEST(test_log_line_has_every_part);
     RUN_TEST(test_log_line_says_no_panel_and_nothing_drawn);
     return UNITY_END();
