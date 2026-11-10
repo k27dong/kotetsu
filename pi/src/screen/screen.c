@@ -1,3 +1,4 @@
+/* the screen: the refresh rules, and the panel that shows the frame */
 #include "screen/screen.h"
 
 #include <stddef.h>
@@ -27,36 +28,42 @@ struct wall screen_new_wall(void) {
 }
 
 static struct decision refresh_for(const struct wall *wall, const struct wanted *wanted) {
-    /* an unknown glass or the dashboard's request is full, whatever the frame */
+    /* full for unknown glass */
     if (!wall->known) {
         return (struct decision){REFRESH_FULL, REASON_UNKNOWN_GLASS};
     }
+
+    /* full when the dashboard asks */
     if (wanted->full_refresh != 0 && wanted->full_refresh != wall->full_refresh_done) {
         return (struct decision){REFRESH_FULL, REASON_FULL_REFRESH_ASKED};
     }
 
-    /* a page turn, by phrase or by date, is full unless the picture is the same */
+    /* new phrase and frame: full */
     const bool same_frame = frame_equal(&wall->frame, wanted->frame);
     const char *text = wanted->phrase_text != nullptr ? wanted->phrase_text : "";
     if (wanted->phrase_id != wall->phrase_id || strcmp(text, wall->phrase_text) != 0) {
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_PHRASE};
     }
+
+    /* new day and frame: full */
     if (!time_same_date(wanted->date, wall->date)) {
         return same_frame ? (struct decision){REFRESH_NONE, REASON_SAME_FRAME}
                           : (struct decision){REFRESH_FULL, REASON_NEW_DAY};
     }
 
-    /* a clean-up is full after a partial, else there is nothing to clean */
+    /* full clean-up after a partial */
     if (wall->cleanup_due) {
         return wall->partials_since_full > 0 ? (struct decision){REFRESH_FULL, REASON_CLEANUP}
                                              : (struct decision){REFRESH_NONE, REASON_CLEANUP};
     }
 
-    /* a changed picture is partial, or full after four partials */
+    /* nothing for the same frame */
     if (same_frame) {
         return (struct decision){REFRESH_NONE, REASON_SAME_FRAME};
     }
+
+    /* partial, or full after four */
     return wall->partials_since_full < PARTIALS_BEFORE_FULL
                    ? (struct decision){REFRESH_PARTIAL, REASON_CHANGE}
                    : (struct decision){REFRESH_FULL, REASON_CHANGE};
@@ -134,7 +141,7 @@ struct wall screen_note_refresh(struct wall wall, const struct wanted *wanted,
         return wall;
     }
 
-    /* the history */
+    /* update the history */
     wall.partials_since_full = result.kind == REFRESH_PARTIAL ? wall.partials_since_full + 1 : 0;
     wall.last_kind = result.kind;
     wall.last_refresh = now;
@@ -191,45 +198,48 @@ const char *screen_reason_text(enum refresh_reason reason) {
     abort();
 }
 
-static int busy_after_sleep(struct board *board) {
-    /* a panel answers deep sleep by holding BUSY high; an empty header reads low */
+[[nodiscard]] static struct busy_reading busy_after_sleep(struct board *board) {
     const struct epd_steps sleep = epd_sleep_steps();
-    return board_run(board, &sleep) ? board_read_busy(board) : -1;
+    if (!board_run(board, &sleep)) {
+        return (struct busy_reading){};
+    }
+    return board_read_busy(board); // only a panel holds BUSY high in deep sleep
 }
 
 struct screen *screen_open(void) {
-    /* the GPIO lines and SPI, which board_open explains when it can't open them */
+    /* open the board */
     struct board *board = board_open();
     if (board == nullptr) {
         log_info("no panel: the board can't be opened");
         return nullptr;
     }
 
-    /* the screen owns the board from here on, whether or not a panel answers */
+    /* make the screen */
     struct screen *screen = malloc(sizeof *screen);
     if (screen == nullptr) {
         log_error("out of memory opening the screen");
         abort();
     }
-    screen->board = board;
+    screen->board = board; // kept even without a panel
 
-    /* a panel that doesn't answer now, as with BUSY stuck at boot, is looked for again later */
-    const int busy = busy_after_sleep(board);
-    screen->panel = busy == 1;
+    /* look for the panel */
+    const struct busy_reading busy = busy_after_sleep(board);
+    screen->panel = busy.ok && busy.busy;
     if (!screen->panel) {
-        log_warning("no panel: BUSY reads %d after deep sleep", busy);
+        log_warning("no panel: BUSY reads %d after deep sleep", busy.ok ? 0 : -1);
     }
     return screen;
 }
 
 struct panel_search screen_find_panel(struct screen *screen) {
-    /* nothing to look for without a board, and nothing more to do once a panel has answered */
+    /* nothing to look for */
     if (screen == nullptr || screen->panel) {
         return (struct panel_search){.found = screen != nullptr};
     }
 
-    /* the same reset and deep sleep as at the start, which never touch the glass */
-    if (busy_after_sleep(screen->board) != 1) {
+    /* look for it again */
+    const struct busy_reading busy = busy_after_sleep(screen->board); // never touches the glass
+    if (!busy.ok || !busy.busy) {
         return (struct panel_search){};
     }
     log_info("panel found: BUSY reads 1 after deep sleep");
@@ -248,9 +258,11 @@ bool screen_clear(struct screen *screen) {
         log_error("no panel to clear");
         return false;
     }
+
+    /* paint the glass white */
     struct frame white;
     frame_fill_white(&white);
-    const struct epd_steps steps = epd_clear_steps(&white);
+    const struct epd_steps steps = epd_refresh_steps(&white, &white, REFRESH_FULL);
     return board_run(screen->board, &steps);
 }
 

@@ -1,3 +1,4 @@
+/* the panel driver: GPIO lines and SPI on the Pi's header */
 #include <errno.h>
 #include <fcntl.h>
 #include <glob.h>
@@ -86,16 +87,19 @@ static bool write_spi(struct board *board, const uint8_t *data, size_t length) {
 }
 
 static bool wait_while_busy(struct board *board, int last_command) {
+    /* poll BUSY */
     for (int waited_ms = 0; waited_ms < BUSY_LIMIT_MS; waited_ms += BUSY_POLL_MS) {
         sleep_ms(BUSY_POLL_MS); // BUSY can lag the command it reports on
-        const int busy = board_read_busy(board);
-        if (busy < 0) {
+        const struct busy_reading busy = board_read_busy(board);
+        if (!busy.ok) {
             return false;
         }
-        if (busy == 0) {
+        if (!busy.busy) {
             return true;
         }
     }
+
+    /* give up after 10 s */
     if (last_command < 0) {
         log_error("the panel stayed busy %d ms after the reset", BUSY_LIMIT_MS);
     } else {
@@ -111,7 +115,7 @@ bool board_run(struct board *board, const struct epd_steps *steps) {
         const struct epd_step *step = &steps->steps[i];
         bool ok = false;
 
-        /* one step: a reset pulse, a command byte with DC low, data with DC high, or a wait */
+        /* send the step */
         switch (step->kind) {
         case EPD_RESET:
             ok = pulse_reset(board);
@@ -132,21 +136,21 @@ bool board_run(struct board *board, const struct epd_steps *steps) {
             break;
         }
 
-        /* the first failure ends the run, so nothing more reaches a panel in an unknown state */
+        /* stop at the first failure */
         if (!ok) {
-            return false;
+            return false; // a panel in an unknown state gets nothing more
         }
     }
     return true;
 }
 
-int board_read_busy(struct board *board) {
+struct busy_reading board_read_busy(struct board *board) {
     const enum gpiod_line_value level = gpiod_line_request_get_value(board->lines, BUSY_GPIO);
     if (level == GPIOD_LINE_VALUE_ERROR) {
         log_error("can't read BUSY on GPIO %u: %s", BUSY_GPIO, strerror(errno));
-        return -1;
+        return (struct busy_reading){};
     }
-    return level == GPIOD_LINE_VALUE_ACTIVE;
+    return (struct busy_reading){.ok = true, .busy = level == GPIOD_LINE_VALUE_ACTIVE};
 }
 
 static bool is_header_chip(struct gpiod_chip *chip, const char *path) {
@@ -161,6 +165,7 @@ static bool is_header_chip(struct gpiod_chip *chip, const char *path) {
 }
 
 static struct gpiod_chip *open_header_chip(void) {
+    /* search the chips */
     glob_t paths = {};
     struct gpiod_chip *match = nullptr;
     if (glob(GPIO_CHIPS, 0, nullptr, &paths) == 0) {
@@ -175,6 +180,8 @@ static struct gpiod_chip *open_header_chip(void) {
             }
         }
     }
+
+    /* free the paths */
     globfree(&paths);
     if (match == nullptr) {
         log_error("no GPIO chip is labelled " HEADER_CHIP_LABEL);
@@ -183,7 +190,7 @@ static struct gpiod_chip *open_header_chip(void) {
 }
 
 static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
-    /* the three configurations a libgpiod request is built from */
+    /* make the configurations */
     struct gpiod_line_settings *settings = gpiod_line_settings_new();
     struct gpiod_line_config *line_config = gpiod_line_config_new();
     struct gpiod_request_config *request_config = gpiod_request_config_new();
@@ -193,7 +200,7 @@ static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
         goto out;
     }
 
-    /* RST and PWR start high, DC low, and BUSY is read */
+    /* set up the four lines */
     if (gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_OUTPUT) != 0 ||
         gpiod_line_settings_set_output_value(settings, GPIOD_LINE_VALUE_ACTIVE) != 0 ||
         gpiod_line_config_add_line_settings(line_config, &RST_GPIO, 1, settings) != 0 ||
@@ -206,7 +213,7 @@ static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
         goto out;
     }
 
-    /* one request for all four lines, in this program's name */
+    /* request the lines */
     gpiod_request_config_set_consumer(request_config, "kotetsu");
     lines = gpiod_chip_request_lines(chip, request_config, line_config);
     if (lines == nullptr) {
@@ -215,7 +222,7 @@ static struct gpiod_line_request *request_lines(struct gpiod_chip *chip) {
     }
 
 out:
-    /* the configurations are done with, whether or not the request was made */
+    /* free the configurations */
     gpiod_request_config_free(request_config);
     gpiod_line_config_free(line_config);
     gpiod_line_settings_free(settings);
@@ -223,11 +230,14 @@ out:
 }
 
 static int open_spi(void) {
+    /* open the device */
     const int fd = open(SPI_DEVICE, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
         log_error("can't open " SPI_DEVICE ": %s", strerror(errno));
         return -1;
     }
+
+    /* set it up */
     const uint8_t mode = SPI_MODE_0;
     const uint8_t bits_per_word = SPI_BITS_PER_WORD;
     const uint32_t speed_hz = SPI_SPEED_HZ;
@@ -242,6 +252,7 @@ static int open_spi(void) {
 }
 
 struct board *board_open(void) {
+    /* request the GPIO lines */
     struct gpiod_chip *chip = open_header_chip();
     if (chip == nullptr) {
         return nullptr;
@@ -251,11 +262,15 @@ struct board *board_open(void) {
     if (lines == nullptr) {
         return nullptr;
     }
+
+    /* open SPI */
     const int spi_fd = open_spi();
     if (spi_fd < 0) {
         gpiod_line_request_release(lines);
         return nullptr;
     }
+
+    /* make the board */
     struct board *board = malloc(sizeof *board);
     if (board == nullptr) {
         log_error("out of memory opening the board");

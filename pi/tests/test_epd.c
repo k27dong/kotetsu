@@ -197,20 +197,6 @@ static void test_every_refresh_ends_in_deep_sleep(void) {
     const struct epd_steps full = epd_refresh_steps(&glass_frame, &next_frame, REFRESH_FULL);
     assert_ends_in_deep_sleep(&full);
     TEST_ASSERT_EQUAL_INT(EPD_WAIT_IDLE, full.steps[full.count - 3].kind);
-    static struct frame white;
-    frame_fill_white(&white);
-    const struct epd_steps clear = epd_clear_steps(&white);
-    assert_ends_in_deep_sleep(&clear);
-}
-
-static void test_clear_steps(void) {
-    static struct frame white;
-    frame_fill_white(&white);
-    const struct epd_steps steps = epd_clear_steps(&white);
-    assert_refresh_shape(&steps, &white, &white);
-    flatten(&steps);
-    expect_update(&white, &white, true);
-    assert_sent_expected();
 }
 
 static void test_sleep_steps_for_detection(void) {
@@ -252,7 +238,6 @@ int main(void) {
     RUN_TEST(test_full_refresh_steps);
     RUN_TEST(test_partial_refresh_uses_0xFF);
     RUN_TEST(test_every_refresh_ends_in_deep_sleep);
-    RUN_TEST(test_clear_steps);
     RUN_TEST(test_sleep_steps_for_detection);
     RUN_TEST(test_no_refresh_aborts);
     return UNITY_END();

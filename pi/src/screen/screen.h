@@ -25,7 +25,8 @@ enum refresh_reason {
     REASON_GREETING_WAIT,
 };
 
-struct wall { // what is on the wall, or would be without a panel
+// what is on the wall, or would be without a panel
+struct wall {
     bool known;
     struct frame frame;
     int64_t phrase_id; // 0 when no phrase is on the glass
@@ -44,10 +45,10 @@ struct wall { // what is on the wall, or would be without a panel
 struct wanted {
     const struct frame *frame;
     int64_t phrase_id;
-    const char *phrase_text; // the phrase actually drawn; nullptr when none
+    const char *phrase_text; // the phrase actually drawn, or nullptr
     struct civil_date date;
     int64_t full_refresh;
-    int cleanup_minute; // the dashboard's, or the wall's own while it hasn't answered
+    int cleanup_minute; // the dashboard's, else the wall's own
     bool answered_today;
 };
 
@@ -64,22 +65,25 @@ struct refresh_result {
 // unknown glass, nothing refreshed, clean-up at 10:00
 struct wall screen_new_wall(void);
 struct decision screen_decide(const struct wall *wall, const struct wanted *wanted, time_t now);
-struct wall screen_note_tick(struct wall wall, const struct wanted *wanted,
-                             struct decision decision, time_t now);
-struct wall screen_note_refresh(struct wall wall, const struct wanted *wanted,
-                                struct refresh_result result, time_t now);
+[[nodiscard]] struct wall screen_note_tick(struct wall wall, const struct wanted *wanted,
+                                           struct decision decision, time_t now);
+[[nodiscard]] struct wall screen_note_refresh(struct wall wall, const struct wanted *wanted,
+                                              struct refresh_result result, time_t now);
 const char *screen_reason_text(enum refresh_reason reason);
 
 struct screen;
 
 struct panel_search {
     bool found;
-    bool just_found; // its first answer since the board opened, so the glass holds nothing of ours
+    bool just_found; // its first answer since the board opened
 };
 
-struct screen *screen_open(void); // nullptr without a board, as on the Mac
-struct panel_search screen_find_panel(struct screen *screen); // looks again while none has answered
+// nullptr without a board, as on the Mac
+struct screen *screen_open(void);
+// looks again while none has answered
+struct panel_search screen_find_panel(struct screen *screen);
 [[nodiscard]] bool screen_refresh(struct screen *screen, const struct frame *on_glass,
                                   const struct frame *next, enum refresh_kind kind);
-[[nodiscard]] bool screen_clear(struct screen *screen); // false without a panel, which it says
+// false without a panel, which it says
+[[nodiscard]] bool screen_clear(struct screen *screen);
 void screen_close(struct screen *screen);
