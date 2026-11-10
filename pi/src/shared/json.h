@@ -4,6 +4,7 @@
 
 #include <cjson/cJSON.h>
 
-const cJSON *json_member(const cJSON *object, const char *name); // nullptr for a non-object
-// a whole number within ±(2^53 − 1), so reading it can't have rounded it
+// nullptr for a non-object
+const cJSON *json_member(const cJSON *object, const char *name);
+// true for a whole number within ±(2^53 − 1), where doubles are exact
 [[nodiscard]] bool json_whole_number(const cJSON *item, int64_t *out);

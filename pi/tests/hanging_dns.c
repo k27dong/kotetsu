@@ -1,9 +1,7 @@
+/* test_http.c preloads this so one host's lookup hangs like a dead DNS server */
 #include <netdb.h>
 #include <string.h>
 #include <time.h>
-
-// test_http.c preloads this library, so one host's lookup hangs the way it does behind a dead DNS
-// server.
 
 static void hang_on_test_host(const char *node) {
     if (node != nullptr && strcmp(node, "dns-hangs.kotetsu.test") == 0) {
@@ -31,11 +29,10 @@ static int hanging_getaddrinfo(const char *node, const char *service, const stru
 
 typedef int lookup(const char *, const char *, const struct addrinfo *, struct addrinfo **);
 
-// LD_PRELOAD puts this definition ahead of libc's, which RTLD_NEXT still reaches
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints,
                 struct addrinfo **result) {
     hang_on_test_host(node);
-    lookup *const real = (lookup *)dlsym(RTLD_NEXT, "getaddrinfo");
+    lookup *const real = (lookup *)dlsym(RTLD_NEXT, "getaddrinfo"); // skips our preloaded copy
     return real(node, service, hints, result);
 }
 

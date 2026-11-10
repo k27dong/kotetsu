@@ -78,7 +78,7 @@ static bool dump(struct nl_sock *socket, int family, const struct dump_request *
                          ? nla_put_u32(message, NL80211_ATTR_IFINDEX, request->ifindex)
                          : 0;
 
-    /* send it, keep each answer */
+    /* send it and keep answers */
     if (status == 0) {
         status = nl_socket_modify_cb(socket, NL_CB_VALID, NL_CB_CUSTOM, request->keep,
                                      request->kept);
@@ -106,7 +106,7 @@ struct wifi_signal wifi_read_signal(void) {
     }
     const int connected = genl_connect(socket);
     const int family = connected < 0 ? connected : genl_ctrl_resolve(socket, NL80211_FAMILY);
-    if (family < 0 && family != -NLE_OBJ_NOTFOUND) { // not found: no Wi-Fi driver, as on a cable
+    if (family < 0 && family != -NLE_OBJ_NOTFOUND) { // a machine without Wi-Fi has no nl80211
         log_error("can't reach nl80211: %s", nl_geterror(family));
     }
 

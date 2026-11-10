@@ -15,6 +15,7 @@
 #include "shared/time.h"
 #include "stderr_capture.h"
 #include "unity.h"
+#include "wifi.h"
 
 #define NOON             "2026-10-26T12:00:00+01:00"
 #define HALF_PAST_ELEVEN "2026-10-26T11:30:00+01:00"
@@ -105,7 +106,7 @@ static void test_error_is_kept_without_logging_it_again(void) {
     start_capture();
     state = record_keep_error(state, "panel refresh failed");
     finish_capture(captured, sizeof captured);
-    TEST_ASSERT_EQUAL_STRING("", captured); // the caller logged it where it happened
+    TEST_ASSERT_EQUAL_STRING("", captured); // the caller logged it at the source
     TEST_ASSERT_EQUAL_STRING("panel refresh failed", state.last_error);
 
     gchar *long_error = g_strnfill(300, 'e');
@@ -118,9 +119,9 @@ static void test_error_is_kept_without_logging_it_again(void) {
 }
 
 static void test_kept_error_keeps_whole_characters(void) {
-    /* 错 is 3 bytes: after 124 bytes it fits the 127 kept, after 125 or 126 it would be cut */
+    /* cut before a split character */
     const size_t lead_bytes[] = {124, 125, 126};
-    const size_t kept_bytes[] = {127, 125, 126};
+    const size_t kept_bytes[] = {127, 125, 126}; // 3-byte 错 fits the 127 only after 124 bytes
     for (size_t i = 0; i < G_N_ELEMENTS(lead_bytes); i++) {
         GString *text = g_string_new(nullptr);
         for (size_t j = 0; j < lead_bytes[i]; j++) {
@@ -137,7 +138,7 @@ static void test_kept_error_keeps_whole_characters(void) {
         TEST_ASSERT_EQUAL_MEMORY(text->str, state.last_error, kept_bytes[i]);
         TEST_ASSERT_TRUE(g_utf8_validate(state.last_error, -1, nullptr));
 
-        /* the report carries the kept text exactly */
+        /* report the kept text */
         const struct report report = {
                 .refresh = REFRESH_FULL, .at = at(NOON), .last_error = state.last_error};
         const struct readings unmeasured = {};
@@ -150,7 +151,7 @@ static void test_kept_error_keeps_whole_characters(void) {
         g_string_free(text, TRUE);
     }
 
-    /* a report's own error that ends in a broken character loses that character */
+    /* drop a broken last character */
     const struct report broken = {.refresh = REFRESH_FULL, .at = at(NOON), .last_error = "ab\xe9"};
     const struct readings unmeasured = {};
     char json[1024];
@@ -367,14 +368,31 @@ static void test_no_upload_for_reported_too_long(void) {
 }
 
 static void test_temperature_from_millidegrees(void) {
-#ifdef __linux__
+    /* read the kernel's own figure */
+    gchar *contents = nullptr;
+    char *end = nullptr;
+    double expected_c = 0;
+    if (g_file_get_contents(TEMPERATURE_PATH, &contents, nullptr, nullptr)) {
+        expected_c = (double)g_ascii_strtoll(contents, &end, 10) / 1'000.0;
+    }
+    const bool parsed = contents != nullptr && end != contents;
+
+    /* compare the reading */
     const struct readings readings = record_read_device();
-    TEST_ASSERT_TRUE(readings.has_pi_temperature);
-    TEST_ASSERT_FLOAT_WITHIN(50.0f, 60.0f, (float)readings.pi_temperature_c);
-#else
+    TEST_ASSERT_EQUAL_INT(parsed, readings.has_pi_temperature);
+    if (parsed) {
+        TEST_ASSERT_FLOAT_WITHIN(3.0f, (float)expected_c, (float)readings.pi_temperature_c);
+    }
+    g_free(contents);
+}
+
+static void test_readings_carry_the_wifi_signal(void) {
+    const struct wifi_signal signal = wifi_read_signal();
     const struct readings readings = record_read_device();
-    TEST_ASSERT_FALSE(readings.has_pi_temperature);
-#endif
+    TEST_ASSERT_EQUAL_INT(signal.ok, readings.has_wifi_signal);
+    if (signal.ok) {
+        TEST_ASSERT_FLOAT_WITHIN(5.0f, (float)signal.quality, (float)readings.wifi_signal);
+    }
 }
 
 static void test_log_line_has_every_part(void) {
@@ -474,6 +492,7 @@ int main(void) {
     RUN_TEST(test_upload_new_too_long_when_glass_known);
     RUN_TEST(test_no_upload_for_reported_too_long);
     RUN_TEST(test_temperature_from_millidegrees);
+    RUN_TEST(test_readings_carry_the_wifi_signal);
     RUN_TEST(test_log_line_has_every_part);
     RUN_TEST(test_log_line_says_no_panel_and_nothing_drawn);
     return UNITY_END();

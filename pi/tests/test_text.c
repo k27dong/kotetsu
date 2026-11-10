@@ -6,13 +6,12 @@
 #include "shared/text.h"
 #include "unity.h"
 
-struct polish_name {
+struct polish_name { // an IMGW warning name with letters that decompose
     const char *composed;
     const char *decomposed;
     const char *shouted; // capitals, decomposed
 };
 
-// the IMGW warning names with letters that Unicode can also spell as a base and a combining mark
 static const struct polish_name POLISH_NAMES[] = {
         {"Intensywne opady śniegu", "Intensywne opady s\u0301niegu",
          "INTENSYWNE OPADY S\u0301NIEGU"},

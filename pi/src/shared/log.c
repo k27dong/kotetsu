@@ -1,3 +1,4 @@
+/* journal lines on stderr, with the priority journald reads */
 #include "shared/log.h"
 
 #include <stdarg.h>
@@ -9,16 +10,17 @@ static constexpr size_t MESSAGE_BYTES = 4'096;
 
 [[gnu::format(printf, 2, 0)]] static void log_line(const char *priority, const char *format,
                                                    va_list arguments) {
+    /* format the line */
     char message[MESSAGE_BYTES];
     vsnprintf(message, sizeof message, format, arguments); // a longer message is cut short
     char line[sizeof "<3>\n" + MESSAGE_BYTES];
     const int length = snprintf(line, sizeof line, "%s%s\n", priority, message);
 
-    // the whole line in one write, so lines from threads logging at once never mix
-    for (int sent = 0; sent < length;) {
+    /* write it in one go */
+    for (int sent = 0; sent < length;) { // so concurrent lines never interleave
         const ssize_t written = write(STDERR_FILENO, line + sent, (size_t)(length - sent));
         if (written <= 0) {
-            return; // stderr is gone, and there is nowhere left to say so
+            return; // stderr is gone, with nowhere left to say so
         }
         sent += (int)written;
     }

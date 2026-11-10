@@ -30,7 +30,7 @@ void tearDown(void) {
         }
         g_dir_close(entries);
     }
-    if (g_rmdir(dir) != 0) { // no asserts: after a failed test, Unity stops at the first one
+    if (g_rmdir(dir) != 0) { // not an assert, which would cut tearDown short
         fprintf(stderr, "can't remove %s\n", dir);
     }
     g_free(dir);
@@ -123,14 +123,13 @@ static void test_write_atomic_fails_in_missing_directory(void) {
 }
 
 static void test_write_atomic_fails_when_directory_cannot_sync(void) {
-    // write and search but no read: the rename works, then the directory can't be opened to sync
     gchar *locked = path_in_dir("locked");
-    TEST_ASSERT_EQUAL_INT(0, g_mkdir(locked, 0300));
+    TEST_ASSERT_EQUAL_INT(0, g_mkdir(locked, 0300)); // without read permission it can't be synced
     gchar *path = g_build_filename(locked, "state", nullptr);
     errno = 0;
     const bool written = file_write_atomic(path, "new", 3);
     const int reason = errno;
-    TEST_ASSERT_EQUAL_INT(0, g_chmod(locked, 0700)); // first, so tearDown can clear it
+    TEST_ASSERT_EQUAL_INT(0, g_chmod(locked, 0700)); // restored first, for tearDown to clear it
     gchar *contents = nullptr;
     const bool replaced = g_file_get_contents(path, &contents, nullptr, nullptr);
     const bool removed = g_remove(path) == 0;

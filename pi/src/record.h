@@ -13,10 +13,11 @@ struct record_state {
     int64_t reported_too_long_id;
 };
 
-// keeps it for the next report; the caller has logged it where it happened
+// keeps text for the next report, without logging it again
 [[nodiscard]] struct record_state record_keep_error(struct record_state record, const char *text);
 
-struct report { // 0 or nullptr means none
+// a field of 0 or nullptr means none
+struct report {
     enum refresh_kind refresh;
     time_t at;
     int64_t phrase_id;
@@ -33,15 +34,16 @@ struct readings {
     double pi_temperature_c;
 };
 
-struct readings record_read_device(void);
+[[nodiscard]] struct readings record_read_device(void);
 [[nodiscard]] bool record_report_json(const struct report *report, const struct readings *readings,
                                       char *out, size_t size);
-bool record_should_upload(const struct record_state *state, bool refreshed, int64_t too_long_id,
-                          bool glass_known);
+// a new too-long phrase goes up for the dashboard to drop
+bool record_should_upload(const struct record_state *state, bool refresh_decided,
+                          int64_t too_long_id, bool glass_known);
 
 struct upload_result {
     bool ok;
-    char error[128]; // what the next report says when the upload failed
+    char error[128]; // the next report's error after a failed upload
 };
 
 [[nodiscard]] struct upload_result
@@ -55,12 +57,12 @@ struct tick_summary {
     const char *dashboard; // "dashboard ok", or the problem
     const char *weather;   // "weather fetched", "weather not due" or "weather failed"
     bool drawn;            // without a frame there was nothing to show or send
-    int64_t phrase_id;     // the phrase drawn; 0 for none
+    int64_t phrase_id;     // the phrase drawn, or 0
     bool too_long;         // the wanted phrase didn't fit
     int missing_glyphs;
     struct decision decision;
     bool refreshed;     // the decided refresh worked
-    bool panel;         // a panel showed it; without one the wall just took the frame
+    bool panel;         // a panel was there to show it
     const char *upload; // "upload ok", "no upload" or "upload failed"
 };
 
