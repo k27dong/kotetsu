@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <time.h>
 
+#include "shared/http.h"
+
+#define WARNINGS_URL "https://danepubliczne.imgw.pl/api/data/warningsmeteo"
+
 static constexpr size_t WARNING_LABEL_BYTES = 32;
 
 struct warnings {
@@ -13,4 +17,4 @@ struct warnings {
 
 struct warnings warnings_fetch(time_t now);
 // {"message": …} means none; any other non-list is an error
-struct warnings warnings_parse(const char *json, time_t now);
+[[nodiscard]] struct warnings warnings_read(const struct http_response *response, time_t now);

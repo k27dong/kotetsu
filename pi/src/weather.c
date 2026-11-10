@@ -15,21 +15,6 @@
 #include "shared/time.h"
 #include "warnings.h"
 
-#define WARSAW_LATITUDE  "52.23"
-#define WARSAW_LONGITUDE "21.01"
-
-#define OPEN_METEO_URL                                                                        \
-    "https://api.open-meteo.com/v1/forecast?latitude=" WARSAW_LATITUDE                        \
-    "&longitude=" WARSAW_LONGITUDE "&current=temperature_2m,weather_code&hourly=weather_code" \
-    "&daily=temperature_2m_max,temperature_2m_min"                                            \
-    "&timezone=Europe%2FWarsaw&timeformat=unixtime&forecast_days=1"
-#define MET_NORWAY_URL                                                                \
-    "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=" WARSAW_LATITUDE \
-    "&lon=" WARSAW_LONGITUDE
-#define AIR_QUALITY_URL                                                               \
-    "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" WARSAW_LATITUDE \
-    "&longitude=" WARSAW_LONGITUDE "&current=european_aqi"
-
 #define MINUS_SIGN  "−"
 #define DEGREE_SIGN "°"
 
@@ -156,7 +141,8 @@ static bool shows_ahead(int code, time_t hour, time_t now) {
            time_warsaw_minute_of_day(hour) < PRECIPITATION_AHEAD_UNTIL_MINUTE;
 }
 
-bool weather_parse_open_meteo(const char *json, time_t now, struct weather_report *out) {
+[[nodiscard]] static bool weather_parse_open_meteo(const char *json, time_t now,
+                                                   struct weather_report *out) {
     /* read the weather now and today's range */
     cJSON *root = cJSON_Parse(json);
     const cJSON *current = json_member(root, "current");
@@ -215,7 +201,8 @@ static int met_code(const cJSON *data) {
     return NO_WEATHER_CODE;
 }
 
-bool weather_parse_met_norway(const char *json, time_t now, struct weather_report *out) {
+[[nodiscard]] static bool weather_parse_met_norway(const char *json, time_t now,
+                                                   struct weather_report *out) {
     /* go through the time series, which needs a time and a temperature in every entry */
     cJSON *root = cJSON_Parse(json);
     const cJSON *series = json_member(json_member(root, "properties"), "timeseries");
@@ -276,7 +263,7 @@ bool weather_parse_met_norway(const char *json, time_t now, struct weather_repor
     return true;
 }
 
-bool weather_parse_eaqi(const char *json, int *eaqi) {
+[[nodiscard]] static bool weather_parse_eaqi(const char *json, int *eaqi) {
     cJSON *root = cJSON_Parse(json);
     const cJSON *value = json_member(json_member(root, "current"), "european_aqi");
     const bool parsed = cJSON_IsNumber(value) && value->valueint >= 0;
@@ -292,7 +279,7 @@ bool weather_parse_eaqi(const char *json, int *eaqi) {
 struct forecast weather_fetch_forecast(const struct weather_state *state, time_t now) {
     /* ask Open-Meteo */
     struct forecast forecast = {};
-    struct http_response answer = http_get_ok(OPEN_METEO_URL);
+    struct http_response answer = http_get_ok(WEATHER_OPEN_METEO_URL);
     forecast.ok = answer.ok && weather_parse_open_meteo(answer.body, now, &forecast.report);
     http_response_free(&answer);
 
@@ -300,7 +287,7 @@ struct forecast weather_fetch_forecast(const struct weather_state *state, time_t
     if (forecast.ok || state->open_meteo_failures + 1 < OPEN_METEO_FAILURES_BEFORE_MET_NORWAY) {
         return forecast;
     }
-    answer = http_get_ok(MET_NORWAY_URL);
+    answer = http_get_ok(WEATHER_MET_NORWAY_URL);
     forecast.ok = answer.ok && weather_parse_met_norway(answer.body, now, &forecast.report);
     forecast.from_met = forecast.ok;
     http_response_free(&answer);
@@ -309,7 +296,7 @@ struct forecast weather_fetch_forecast(const struct weather_state *state, time_t
 
 struct air weather_fetch_air(void) {
     struct air air = {.eaqi = EAQI_UNKNOWN};
-    struct http_response answer = http_get_ok(AIR_QUALITY_URL);
+    struct http_response answer = http_get_ok(WEATHER_AIR_QUALITY_URL);
     air.ok = answer.ok && weather_parse_eaqi(answer.body, &air.eaqi);
     http_response_free(&answer);
     return air;
@@ -333,6 +320,54 @@ void weather_absorb(struct weather_state *state, const struct weather_fetched *f
     state->eaqi = fetched->air.ok ? fetched->air.eaqi : EAQI_UNKNOWN;
     state->have_warning = fetched->warnings.ok && fetched->warnings.any;
     memcpy(state->warning, fetched->warnings.label, sizeof state->warning);
+}
+
+struct forecast weather_read_open_meteo(const struct http_response *response, time_t now) {
+    struct forecast forecast = {};
+    forecast.ok = http_ok(WEATHER_OPEN_METEO_URL, response) &&
+                  weather_parse_open_meteo(response->body, now, &forecast.report);
+    return forecast;
+}
+
+struct forecast weather_read_met_norway(const struct http_response *response, time_t now) {
+    struct forecast forecast = {};
+    forecast.ok = http_ok(WEATHER_MET_NORWAY_URL, response) &&
+                  weather_parse_met_norway(response->body, now, &forecast.report);
+    forecast.from_met = forecast.ok;
+    return forecast;
+}
+
+bool weather_wants_met_norway(const struct weather_state *state,
+                              const struct forecast *open_meteo) {
+    return !open_meteo->ok &&
+           state->open_meteo_failures + 1 >= OPEN_METEO_FAILURES_BEFORE_MET_NORWAY;
+}
+
+struct weather_state weather_update(struct weather_state previous, const struct forecast *forecast,
+                                    const struct http_response *air,
+                                    const struct http_response *warnings, time_t now) {
+    /* always read air and warnings */
+    int eaqi = EAQI_UNKNOWN;
+    const bool air_ok =
+            http_ok(WEATHER_AIR_QUALITY_URL, air) && weather_parse_eaqi(air->body, &eaqi);
+    const struct warnings in_force = warnings_read(warnings, now);
+
+    /* count Open-Meteo's failures */
+    struct weather_state state = previous;
+    state.next_fetch = now + FETCH_PERIOD_SECONDS;
+    state.open_meteo_failures =
+            forecast->ok && !forecast->from_met ? 0 : previous.open_meteo_failures + 1;
+    if (!forecast->ok) {
+        return state; // the last report stays, with its air and warning
+    }
+
+    /* take the new report */
+    state.have_report = true;
+    state.report = forecast->report;
+    state.eaqi = air_ok ? eaqi : EAQI_UNKNOWN;
+    state.have_warning = in_force.ok && in_force.any;
+    memcpy(state.warning, in_force.label, sizeof state.warning);
+    return state;
 }
 
 static const char *sign_of(int degrees) {

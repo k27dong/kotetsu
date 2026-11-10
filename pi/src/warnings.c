@@ -13,7 +13,6 @@
 #include "shared/text.h"
 #include "shared/time.h"
 
-#define IMGW_WARNINGS_URL  "https://danepubliczne.imgw.pl/api/data/warningsmeteo"
 #define WARSAW_COUNTY_CODE "1465"
 
 static constexpr size_t IMGW_DATE_LENGTH = sizeof "YYYY-MM-DD" - 1;
@@ -115,7 +114,7 @@ static bool read_warning_in_force(const cJSON *entry, time_t now, struct imgw_wa
     return false;
 }
 
-struct warnings warnings_parse(const char *json, time_t now) {
+static struct warnings warnings_parse(const char *json, time_t now) {
     /* IMGW answers with a message while nothing is in force, and with a list otherwise */
     cJSON *root = cJSON_Parse(json);
     struct warnings warnings = {.ok = true};
@@ -148,11 +147,18 @@ struct warnings warnings_parse(const char *json, time_t now) {
 }
 
 struct warnings warnings_fetch(time_t now) {
-    struct http_response answer = http_get_ok(IMGW_WARNINGS_URL);
+    struct http_response answer = http_get_ok(WARNINGS_URL);
     struct warnings warnings = {};
     if (answer.ok) {
         warnings = warnings_parse(answer.body, now);
     }
     http_response_free(&answer);
     return warnings;
+}
+
+struct warnings warnings_read(const struct http_response *response, time_t now) {
+    if (!http_ok(WARNINGS_URL, response)) {
+        return (struct warnings){};
+    }
+    return warnings_parse(response->body, now);
 }
