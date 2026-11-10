@@ -15,8 +15,6 @@
 
 #include "unity.h"
 
-// Unity's assertions only work on the test's own thread, so the server thread uses g_assert_true.
-
 struct fake_route {
     const char *path_prefix;
     int status;
@@ -90,7 +88,7 @@ static constexpr size_t FAKE_CHUNK_BYTES = 64 * 1024;
     while (length > 0) {
         const ssize_t sent = send(connection, data, length, 0);
         if (sent <= 0) {
-            return; // the client hung up, as it should on a body over its limit
+            return; // the client hangs up on a body over its limit
         }
         data += sent;
         length -= (size_t)sent;
@@ -152,7 +150,7 @@ static constexpr size_t FAKE_CHUNK_BYTES = 64 * 1024;
             continue;
         }
         const int connection = accept(server->listener, nullptr, nullptr);
-        g_assert_true(connection >= 0);
+        g_assert_true(connection >= 0); // Unity only works on the test thread
         GString *request = fake_read_request(connection);
         g_mutex_lock(&server->lock);
         g_ptr_array_add(server->requests, request);
