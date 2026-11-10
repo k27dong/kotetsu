@@ -40,7 +40,7 @@ void tearDown(void) {
 }
 
 static void known_wall(struct wall *wall, time_t full_refresh_at) {
-    screen_wall_init(wall);
+    *wall = screen_new_wall();
     wall->known = true;
     wall->frame = glass_frame;
     wall->phrase_id = PHRASE_ID;
@@ -67,25 +67,31 @@ static void assert_decision(enum refresh_kind kind, enum refresh_reason reason,
     TEST_ASSERT_EQUAL_INT(reason, decision.reason);
 }
 
+static struct decision tick(struct wall *wall, const struct wanted *wanted, time_t now) {
+    const struct decision decision = screen_decide(wall, wanted, now);
+    *wall = screen_note_tick(*wall, wanted, decision, now);
+    return decision;
+}
+
 static void refreshed(struct wall *wall, const struct wanted *wanted, enum refresh_kind kind,
                       time_t now) {
-    screen_record(wall, wanted, (struct refresh_result){.kind = kind, .ok = true}, now);
+    *wall = screen_note_refresh(*wall, wanted, (struct refresh_result){.kind = kind, .ok = true},
+                                now);
 }
 
 static void test_unknown_glass_is_full(void) {
-    struct wall wall;
-    screen_wall_init(&wall);
+    struct wall wall = screen_new_wall();
     TEST_ASSERT_FALSE(wall.known);
     TEST_ASSERT_EQUAL_INT(CLEANUP_AT_TEN, wall.cleanup_minute);
     TEST_ASSERT_EQUAL_INT64(0, wall.last_refresh);
     struct wanted wanted = as_on_glass();
-    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, screen_decide(&wall, &wanted, noon));
+    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, tick(&wall, &wanted, noon));
 
     known_wall(&wall, noon);
     wall.known = false;
-    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, tick(&wall, &wanted, noon + 600));
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS, tick(&wall, &wanted, noon + 600));
 }
 
 static void test_new_full_refresh_id_is_full_once(void) {
@@ -93,14 +99,12 @@ static void test_new_full_refresh_id_is_full_once(void) {
     known_wall(&wall, noon);
     struct wanted wanted = as_on_glass();
     wanted.full_refresh = 41;
-    assert_decision(REFRESH_FULL, REASON_FULL_REFRESH_ASKED,
-                    screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_FULL_REFRESH_ASKED, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_FULL, noon + 600);
     TEST_ASSERT_EQUAL_INT64(41, wall.full_refresh_done);
-    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, screen_decide(&wall, &wanted, noon + 1200));
+    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, tick(&wall, &wanted, noon + 1200));
     wanted.full_refresh = 42;
-    assert_decision(REFRESH_FULL, REASON_FULL_REFRESH_ASKED,
-                    screen_decide(&wall, &wanted, noon + 1500));
+    assert_decision(REFRESH_FULL, REASON_FULL_REFRESH_ASKED, tick(&wall, &wanted, noon + 1500));
 }
 
 static void test_new_phrase_is_full(void) {
@@ -110,14 +114,14 @@ static void test_new_phrase_is_full(void) {
     wanted.frame = &other_frame;
     wanted.phrase_id = 6;
     wanted.phrase_text = OTHER_PHRASE;
-    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_FULL, noon + 600);
     TEST_ASSERT_EQUAL_INT64(6, wall.phrase_id);
     TEST_ASSERT_EQUAL_STRING(OTHER_PHRASE, wall.phrase_text);
 
     wanted.frame = &glass_frame; // the same id with new text is a new phrase too
     wanted.phrase_text = PHRASE;
-    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, screen_decide(&wall, &wanted, noon + 1200));
+    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, tick(&wall, &wanted, noon + 1200));
 }
 
 static void test_new_day_is_full(void) {
@@ -126,10 +130,10 @@ static void test_new_day_is_full(void) {
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
     wanted.date = (struct civil_date){2026, 10, 27};
-    assert_decision(REFRESH_FULL, REASON_NEW_DAY, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_NEW_DAY, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_FULL, noon + 600);
     TEST_ASSERT_EQUAL_INT(27, wall.date.day);
-    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, screen_decide(&wall, &wanted, noon + 1200));
+    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, tick(&wall, &wanted, noon + 1200));
 }
 
 static void test_cleanup_crossing_after_partial_is_full(void) {
@@ -138,14 +142,14 @@ static void test_cleanup_crossing_after_partial_is_full(void) {
     known_wall(&wall, nine);
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, screen_decide(&wall, &wanted, nine + 1800));
+    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, nine + 1800));
     refreshed(&wall, &wanted, REFRESH_PARTIAL, nine + 1800);
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
     TEST_ASSERT_FALSE(wall.cleanup_due);
     wanted.frame = &glass_frame; // a changed frame at the crossing is still full, never partial
     assert_decision(REFRESH_FULL, REASON_CLEANUP,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
     TEST_ASSERT_TRUE(wall.cleanup_due);
     refreshed(&wall, &wanted, REFRESH_FULL, at("2026-10-26T10:00:05+01:00"));
     TEST_ASSERT_FALSE(wall.cleanup_due);
@@ -158,13 +162,13 @@ static void test_cleanup_crossing_without_partial_clears_due(void) {
     known_wall(&wall, nine);
     struct wanted wanted = as_on_glass();
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
     wanted.frame = &other_frame; // the change waits a tick: nothing to clean, so no partial either
     assert_decision(REFRESH_NONE, REASON_CLEANUP,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
     TEST_ASSERT_FALSE(wall.cleanup_due);
     assert_decision(REFRESH_PARTIAL, REASON_CHANGE,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:20+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:20+01:00")));
 }
 
 static void test_cleanup_crossing_needs_ticks_on_the_same_day(void) {
@@ -175,10 +179,10 @@ static void test_cleanup_crossing_needs_ticks_on_the_same_day(void) {
     wall.last_tick = at("2026-10-25T09:30:00+01:00");
     struct wanted wanted = as_on_glass();
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
     TEST_ASSERT_FALSE(wall.cleanup_due);
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:20+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:20+01:00")));
     TEST_ASSERT_FALSE(wall.cleanup_due);
 }
 
@@ -191,14 +195,14 @@ static void test_cleanup_follows_the_dashboard_minute(void) {
     wanted.frame = &other_frame;
     refreshed(&wall, &wanted, REFRESH_PARTIAL, nine + 1800);
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T09:59:50+01:00")));
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
     TEST_ASSERT_EQUAL_INT(11 * 60, wall.cleanup_minute);
     assert_decision(REFRESH_NONE, REASON_SAME_FRAME,
-                    screen_decide(&wall, &wanted, at("2026-10-26T10:59:50+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T10:59:50+01:00")));
     assert_decision(REFRESH_FULL, REASON_CLEANUP,
-                    screen_decide(&wall, &wanted, at("2026-10-26T11:00:05+01:00")));
+                    tick(&wall, &wanted, at("2026-10-26T11:00:05+01:00")));
 }
 
 static void test_changed_frame_is_partial(void) {
@@ -206,7 +210,7 @@ static void test_changed_frame_is_partial(void) {
     known_wall(&wall, noon);
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_PARTIAL, noon + 600);
     TEST_ASSERT_TRUE(frame_equal(&other_frame, &wall.frame));
     TEST_ASSERT_EQUAL_INT(REFRESH_PARTIAL, wall.last_kind);
@@ -222,13 +226,13 @@ static void test_fifth_change_is_full(void) {
     for (int i = 0; i < 4; i++) {
         now += 1800;
         wanted.frame = i % 2 == 0 ? &other_frame : &glass_frame;
-        assert_decision(REFRESH_PARTIAL, REASON_CHANGE, screen_decide(&wall, &wanted, now));
+        assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, now));
         refreshed(&wall, &wanted, REFRESH_PARTIAL, now);
     }
     TEST_ASSERT_EQUAL_INT(4, wall.partials_since_full);
     now += 1800;
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_FULL, REASON_CHANGE, screen_decide(&wall, &wanted, now));
+    assert_decision(REFRESH_FULL, REASON_CHANGE, tick(&wall, &wanted, now));
     refreshed(&wall, &wanted, REFRESH_FULL, now);
     TEST_ASSERT_EQUAL_INT(0, wall.partials_since_full);
     TEST_ASSERT_EQUAL_INT(REFRESH_FULL, wall.last_kind);
@@ -238,7 +242,7 @@ static void test_identical_frame_is_none(void) {
     struct wall wall;
     known_wall(&wall, noon);
     struct wanted wanted = as_on_glass();
-    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_NONE, noon + 600);
     TEST_ASSERT_EQUAL_INT64(noon, wall.last_refresh);
     TEST_ASSERT_EQUAL_INT(0, wall.partials_since_full);
@@ -249,12 +253,10 @@ static void test_179_s_after_refresh_is_too_soon(void) {
     known_wall(&wall, noon);
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_NONE, REASON_TOO_SOON,
-                    screen_decide(&wall, &wanted, noon + GAP_SECONDS - 1));
+    assert_decision(REFRESH_NONE, REASON_TOO_SOON, tick(&wall, &wanted, noon + GAP_SECONDS - 1));
     wanted.phrase_id = 6;
     wanted.phrase_text = OTHER_PHRASE;
-    assert_decision(REFRESH_NONE, REASON_TOO_SOON,
-                    screen_decide(&wall, &wanted, noon + GAP_SECONDS - 1));
+    assert_decision(REFRESH_NONE, REASON_TOO_SOON, tick(&wall, &wanted, noon + GAP_SECONDS - 1));
 }
 
 static void test_180_s_after_refresh_refreshes(void) {
@@ -262,12 +264,10 @@ static void test_180_s_after_refresh_refreshes(void) {
     known_wall(&wall, noon);
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
-    assert_decision(REFRESH_PARTIAL, REASON_CHANGE,
-                    screen_decide(&wall, &wanted, noon + GAP_SECONDS));
+    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, noon + GAP_SECONDS));
     wanted.phrase_id = 6;
     wanted.phrase_text = OTHER_PHRASE;
-    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE,
-                    screen_decide(&wall, &wanted, noon + GAP_SECONDS));
+    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, tick(&wall, &wanted, noon + GAP_SECONDS));
 }
 
 static void test_clock_went_back_waits_from_now(void) {
@@ -276,12 +276,11 @@ static void test_clock_went_back_waits_from_now(void) {
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
     const time_t yesterday = noon - 86'400;
-    assert_decision(REFRESH_NONE, REASON_TOO_SOON, screen_decide(&wall, &wanted, yesterday));
+    assert_decision(REFRESH_NONE, REASON_TOO_SOON, tick(&wall, &wanted, yesterday));
     TEST_ASSERT_EQUAL_INT64(yesterday, wall.last_refresh);
     assert_decision(REFRESH_NONE, REASON_TOO_SOON,
-                    screen_decide(&wall, &wanted, yesterday + GAP_SECONDS - 1));
-    assert_decision(REFRESH_PARTIAL, REASON_CHANGE,
-                    screen_decide(&wall, &wanted, yesterday + GAP_SECONDS));
+                    tick(&wall, &wanted, yesterday + GAP_SECONDS - 1));
+    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, yesterday + GAP_SECONDS));
 }
 
 static void test_new_day_waits_60_s_for_greeting(void) {
@@ -293,12 +292,11 @@ static void test_new_day_waits_60_s_for_greeting(void) {
     wanted.date = (struct civil_date){2026, 10, 27};
     wanted.answered_today = false;
     for (time_t after = 5; after < GREETING_WAIT_SECONDS + 5; after += TICK_SECONDS) {
-        assert_decision(REFRESH_NONE, REASON_GREETING_WAIT,
-                        screen_decide(&wall, &wanted, midnight + after));
+        assert_decision(REFRESH_NONE, REASON_GREETING_WAIT, tick(&wall, &wanted, midnight + after));
     }
     TEST_ASSERT_EQUAL_INT64(midnight + 5, wall.greeting_wait_since);
     assert_decision(REFRESH_FULL, REASON_NEW_DAY,
-                    screen_decide(&wall, &wanted, midnight + GREETING_WAIT_SECONDS + 5));
+                    tick(&wall, &wanted, midnight + GREETING_WAIT_SECONDS + 5));
     refreshed(&wall, &wanted, REFRESH_FULL, midnight + GREETING_WAIT_SECONDS + 5);
     TEST_ASSERT_EQUAL_INT64(0, wall.greeting_wait_since);
 }
@@ -311,10 +309,9 @@ static void test_greeting_arriving_during_wait_refreshes_at_once(void) {
     wanted.frame = &other_frame;
     wanted.date = (struct civil_date){2026, 10, 27};
     wanted.answered_today = false;
-    assert_decision(REFRESH_NONE, REASON_GREETING_WAIT,
-                    screen_decide(&wall, &wanted, midnight + 5));
+    assert_decision(REFRESH_NONE, REASON_GREETING_WAIT, tick(&wall, &wanted, midnight + 5));
     wanted.answered_today = true;
-    assert_decision(REFRESH_FULL, REASON_NEW_DAY, screen_decide(&wall, &wanted, midnight + 20));
+    assert_decision(REFRESH_FULL, REASON_NEW_DAY, tick(&wall, &wanted, midnight + 20));
 }
 
 static void test_new_phrase_on_a_new_day_does_not_wait(void) {
@@ -327,7 +324,7 @@ static void test_new_phrase_on_a_new_day_does_not_wait(void) {
     wanted.answered_today = false;
     wanted.phrase_id = 6;
     wanted.phrase_text = OTHER_PHRASE;
-    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, screen_decide(&wall, &wanted, midnight + 5));
+    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, tick(&wall, &wanted, midnight + 5));
     TEST_ASSERT_EQUAL_INT64(0, wall.greeting_wait_since);
 }
 
@@ -340,11 +337,10 @@ static void test_greeting_wait_started_in_the_future_restarts_now(void) {
     wanted.frame = &other_frame;
     wanted.date = (struct civil_date){2026, 10, 27};
     wanted.answered_today = false;
-    assert_decision(REFRESH_NONE, REASON_GREETING_WAIT,
-                    screen_decide(&wall, &wanted, midnight + 5));
+    assert_decision(REFRESH_NONE, REASON_GREETING_WAIT, tick(&wall, &wanted, midnight + 5));
     TEST_ASSERT_EQUAL_INT64(midnight + 5, wall.greeting_wait_since);
     assert_decision(REFRESH_FULL, REASON_NEW_DAY,
-                    screen_decide(&wall, &wanted, midnight + GREETING_WAIT_SECONDS + 5));
+                    tick(&wall, &wanted, midnight + GREETING_WAIT_SECONDS + 5));
 }
 
 static void test_failed_refresh_makes_glass_unknown(void) {
@@ -353,17 +349,18 @@ static void test_failed_refresh_makes_glass_unknown(void) {
     struct wanted wanted = as_on_glass();
     wanted.frame = &other_frame;
     const time_t failed_at = noon + 600;
-    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, screen_decide(&wall, &wanted, failed_at));
-    screen_record(&wall, &wanted, (struct refresh_result){REFRESH_PARTIAL, false}, failed_at);
+    assert_decision(REFRESH_PARTIAL, REASON_CHANGE, tick(&wall, &wanted, failed_at));
+    wall = screen_note_refresh(wall, &wanted, (struct refresh_result){REFRESH_PARTIAL, false},
+                               failed_at);
     TEST_ASSERT_FALSE(wall.known);
     TEST_ASSERT_EQUAL_INT64(failed_at, wall.last_refresh);
     TEST_ASSERT_EQUAL_INT(REFRESH_FULL, wall.last_kind);
     TEST_ASSERT_EQUAL_INT64(PHRASE_ID, wall.phrase_id);
     for (time_t now = failed_at; now < failed_at + GAP_SECONDS; now += TICK_SECONDS) {
-        assert_decision(REFRESH_NONE, REASON_TOO_SOON, screen_decide(&wall, &wanted, now));
+        assert_decision(REFRESH_NONE, REASON_TOO_SOON, tick(&wall, &wanted, now));
     }
     assert_decision(REFRESH_FULL, REASON_UNKNOWN_GLASS,
-                    screen_decide(&wall, &wanted, failed_at + GAP_SECONDS));
+                    tick(&wall, &wanted, failed_at + GAP_SECONDS));
 }
 
 static void test_full_success_clears_cleanup_and_marks_request_done(void) {
@@ -405,11 +402,27 @@ static void test_no_phrase_on_the_glass(void) {
     wanted.frame = &other_frame;
     wanted.phrase_id = 0;
     wanted.phrase_text = nullptr;
-    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, screen_decide(&wall, &wanted, noon + 600));
+    assert_decision(REFRESH_FULL, REASON_NEW_PHRASE, tick(&wall, &wanted, noon + 600));
     refreshed(&wall, &wanted, REFRESH_FULL, noon + 600);
     TEST_ASSERT_EQUAL_INT64(0, wall.phrase_id);
     TEST_ASSERT_EQUAL_STRING("", wall.phrase_text);
-    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, screen_decide(&wall, &wanted, noon + 1200));
+    assert_decision(REFRESH_NONE, REASON_SAME_FRAME, tick(&wall, &wanted, noon + 1200));
+}
+
+static void test_decide_leaves_the_wall_unchanged(void) {
+    struct wall wall = screen_new_wall();
+    const struct wall before = wall;
+    const struct wanted wanted = as_on_glass();
+    (void)screen_decide(&wall, &wanted, noon);
+    TEST_ASSERT_EQUAL_MEMORY(&before, &wall, sizeof wall);
+
+    known_wall(&wall, at("2026-10-26T09:00:00+01:00"));
+    wall.partials_since_full = 1;
+    wall.last_tick = at("2026-10-26T09:59:50+01:00");
+    const struct wall due = wall;
+    assert_decision(REFRESH_FULL, REASON_CLEANUP,
+                    screen_decide(&wall, &wanted, at("2026-10-26T10:00:05+01:00")));
+    TEST_ASSERT_EQUAL_MEMORY(&due, &wall, sizeof wall);
 }
 
 static void test_reason_texts(void) {
@@ -468,6 +481,7 @@ int main(void) {
     RUN_TEST(test_failed_refresh_makes_glass_unknown);
     RUN_TEST(test_full_success_clears_cleanup_and_marks_request_done);
     RUN_TEST(test_no_phrase_on_the_glass);
+    RUN_TEST(test_decide_leaves_the_wall_unchanged);
     RUN_TEST(test_reason_texts);
     RUN_TEST(test_no_panel_on_this_machine);
     return UNITY_END();

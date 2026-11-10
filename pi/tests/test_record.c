@@ -123,7 +123,7 @@ static unsigned count_lines(const char *text) {
 }
 
 static void saved_wall(struct wall *wall) {
-    screen_wall_init(wall);
+    *wall = screen_new_wall();
     wall->known = true;
     wall->frame = glass_frame;
     wall->phrase_id = 183;
@@ -192,7 +192,7 @@ static void assert_wall_as_started(const struct wall *wall) {
     TEST_ASSERT_EQUAL_INT64(0, wall->greeting_wait_since);
 }
 
-static void assert_first_refresh_full(struct wall *wall) {
+static void assert_first_refresh_full(const struct wall *wall) {
     const struct wanted wanted = {
             .frame = &glass_frame,
             .phrase_id = wall->phrase_id,
@@ -315,7 +315,7 @@ static void test_save_then_restore_round_trips_with_glass_unknown(void) {
     TEST_ASSERT_EQUAL_INT(660, wall.cleanup_minute);
     TEST_ASSERT_EQUAL_INT(3, wall.partials_since_full);
     TEST_ASSERT_EQUAL_INT64(at(NOON), wall.last_refresh);
-    TEST_ASSERT_EQUAL_INT(0, wall.date.year); // not saved: these start as screen_wall_init has them
+    TEST_ASSERT_EQUAL_INT(0, wall.date.year); // not saved: these start as screen_new_wall has them
     TEST_ASSERT_EQUAL_INT(REFRESH_NONE, wall.last_kind);
     TEST_ASSERT_EQUAL_INT64(0, wall.last_tick);
     TEST_ASSERT_FALSE(wall.cleanup_due);
@@ -335,8 +335,7 @@ static void test_save_then_restore_round_trips_with_glass_unknown(void) {
 }
 
 static void test_save_then_restore_without_phrase_request_or_weather(void) {
-    struct wall wall;
-    screen_wall_init(&wall);
+    struct wall wall = screen_new_wall();
     wall.cleanup_minute = 0; // midnight is a real minute, not "none"
     const struct weather_state nothing = starting_weather();
     TEST_ASSERT_TRUE(record_save(path, &wall, &nothing));
@@ -534,8 +533,7 @@ static void test_restore_missing_file_is_quiet(void) {
 static void test_save_leaves_no_temp_file(void) {
     save_sample();
     const long full = file_size(path);
-    struct wall wall;
-    screen_wall_init(&wall);
+    const struct wall wall = screen_new_wall();
     const struct weather_state nothing = starting_weather();
     TEST_ASSERT_TRUE(record_save(path, &wall, &nothing));
     TEST_ASSERT_EQUAL_UINT(1, entries_in_dir());

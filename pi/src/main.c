@@ -271,6 +271,7 @@ static struct outcome output(struct screen *screen, const struct config *config,
             .answered_today = drawn->answered_today,
     };
     const struct decision decision = screen_decide(&state->wall, &wanted, drawn->at);
+    state->wall = screen_note_tick(state->wall, &wanted, decision, drawn->at);
     const bool refreshing = decision.kind != REFRESH_NONE;
 
     /* the report goes with the frame refreshed now, or with the one on the glass */
@@ -315,8 +316,8 @@ static struct outcome output(struct screen *screen, const struct config *config,
     }
 
     /* what the wall holds now, saved once the panel shows it */
-    screen_record(&state->wall, &wanted, (struct refresh_result){decision.kind, refresh.ok},
-                  drawn->at);
+    state->wall = screen_note_refresh(
+            state->wall, &wanted, (struct refresh_result){decision.kind, refresh.ok}, drawn->at);
     if (refreshing && !refresh.ok) {
         record_error(&state->record, "panel refresh failed");
     }
@@ -396,7 +397,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     struct screen *screen = screen_open();
-    struct state state = {.weather = {.eaqi = -1}};
+    struct state state = {.weather = {.eaqi = -1}, .wall = screen_new_wall()};
     if (record_restore(config.state_path, &state.wall, &state.weather)) {
         log_info("restored the saved state from %s", config.state_path);
     }

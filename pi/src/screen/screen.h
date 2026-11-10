@@ -61,10 +61,13 @@ struct refresh_result {
     bool ok;
 };
 
-void screen_wall_init(struct wall *wall); // unknown glass, nothing refreshed, clean-up at 10:00
-struct decision screen_decide(struct wall *wall, const struct wanted *wanted, time_t now);
-void screen_record(struct wall *wall, const struct wanted *wanted, struct refresh_result result,
-                   time_t now);
+// unknown glass, nothing refreshed, clean-up at 10:00
+struct wall screen_new_wall(void);
+struct decision screen_decide(const struct wall *wall, const struct wanted *wanted, time_t now);
+struct wall screen_note_tick(struct wall wall, const struct wanted *wanted,
+                             struct decision decision, time_t now);
+struct wall screen_note_refresh(struct wall wall, const struct wanted *wanted,
+                                struct refresh_result result, time_t now);
 const char *screen_reason_text(enum refresh_reason reason);
 
 struct screen;
