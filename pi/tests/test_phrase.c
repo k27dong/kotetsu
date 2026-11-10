@@ -397,13 +397,12 @@ static void test_no_server_is_unreachable(void) {
 }
 
 static void test_answered_today_false_next_warsaw_day(void) {
-    // the first two moments are both on 26 October in UTC; only the Warsaw date moves on
     const struct phrase_state evening =
             read_pi_now((struct phrase_state){}, at("2026-10-26T23:59:50+01:00"));
     TEST_ASSERT_TRUE(evening.answered_today);
 
     const struct phrase_state midnight =
-            read_from(evening, 503, "", at("2026-10-27T00:00:05+01:00"));
+            read_from(evening, 503, "", at("2026-10-27T00:00:05+01:00")); // still 26 October in UTC
     TEST_ASSERT_EQUAL_INT(DASHBOARD_NO_PHRASE, midnight.status);
     TEST_ASSERT_TRUE(midnight.have_answer);
     assert_pi_now_answer(&midnight.answer);

@@ -40,7 +40,7 @@ void tearDown(void) {
         }
         g_dir_close(entries);
     }
-    if (g_rmdir(dir) != 0) { // no asserts: after a failed test, Unity stops at the first one
+    if (g_rmdir(dir) != 0) { // after a failed test, an assert would cut the clean-up short
         fprintf(stderr, "can't remove %s\n", dir);
     }
     g_free(dir);
@@ -105,7 +105,7 @@ static void test_key_file_needs_a_dashboard_url(void) {
                                  "mistake\n",
                                  captured);
     }
-    use_systemd_key("from-systemd\n"); // the key file still wins, so the rule still holds
+    use_systemd_key("from-systemd\n"); // a systemd key doesn't lift the rule
     TEST_ASSERT_FALSE(config_load().ok);
 }
 
@@ -193,8 +193,7 @@ static void test_overlong_value_is_not_ok(void) {
 
 static void test_overlong_key_is_not_ok(void) {
     gchar *longest = g_strnfill(PI_KEY_MAX_BYTES - 1, 'k');
-    // a file over 256 bytes, with a key inside that fits
-    gchar *longest_padded = g_strconcat("  ", longest, "\r\n", nullptr);
+    gchar *longest_padded = g_strconcat("  ", longest, "\r\n", nullptr); // over 256 bytes in all
     use_key_file(longest_padded, -1);
     const struct config config = config_load();
     TEST_ASSERT_TRUE(config.ok);
@@ -216,8 +215,7 @@ static void test_overlong_key_is_not_ok(void) {
 }
 
 static void test_overlong_credentials_directory_is_not_ok(void) {
-    // the directory, "/pi-key" and the string's end share 4,096 bytes, so the directory gets 4,088
-    gchar *longest = g_strnfill(4'088, 'c');
+    gchar *longest = g_strnfill(4'088, 'c'); // 4,096 bytes less "/pi-key" and the string's end
     gchar *too_long = g_strnfill(4'089, 'c');
     char captured[1024];
     TEST_ASSERT_EQUAL_INT(0, setenv("CREDENTIALS_DIRECTORY", too_long, 1));
@@ -230,7 +228,7 @@ static void test_overlong_credentials_directory_is_not_ok(void) {
     start_capture();
     const bool longest_ok = config_load().ok;
     finish_capture(captured, sizeof captured);
-    TEST_ASSERT_FALSE(longest_ok); // no such directory, but its path fits
+    TEST_ASSERT_FALSE(longest_ok); // fails on the missing directory, not its length
     TEST_ASSERT_TRUE_MESSAGE(g_str_has_prefix(captured, "<3>can't read the Pi key from ccc"),
                              captured);
     g_free(too_long);

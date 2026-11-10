@@ -1,3 +1,4 @@
+/* the weather warnings IMGW has in force for Warsaw */
 #include "warnings.h"
 
 #include <stddef.h>
@@ -47,7 +48,7 @@ static const struct warning_name WARNING_NAMES[] = {
 };
 
 static bool read_warsaw_time(const cJSON *item, time_t *out) {
-    /* read IMGW's "YYYY-MM-DD HH:MM:SS" as if it were UTC */
+    /* read it as if UTC */
     const char *text = cJSON_GetStringValue(item);
     if (text == nullptr || strlen(text) != IMGW_TIME_LENGTH || text[IMGW_DATE_LENGTH] != ' ') {
         return false;
@@ -62,17 +63,16 @@ static bool read_warsaw_time(const cJSON *item, time_t *out) {
         return false;
     }
 
-    /* take off Warsaw's offset: 2 hours in summer, 1 in winter */
-    const time_t summer = wall - 2 * SECONDS_PER_HOUR;
-    // a repeated autumn hour reads as its first pass, and a skipped spring hour as winter time
+    /* take off Warsaw's offset */
+    const time_t summer = wall - 2 * SECONDS_PER_HOUR; // a repeated autumn hour reads as summer
     const bool is_summer =
             time_warsaw_minute_of_day(summer) == wall % SECONDS_PER_DAY / SECONDS_PER_MINUTE;
-    *out = is_summer ? summer : wall - SECONDS_PER_HOUR;
+    *out = is_summer ? summer : wall - SECONDS_PER_HOUR; // a skipped spring hour reads as winter
     return true;
 }
 
 static bool read_warning_in_force(const cJSON *entry, time_t now, struct imgw_warning *out) {
-    /* read the entry, skipping one that doesn't parse */
+    /* read the entry */
     const char *event = cJSON_GetStringValue(json_member(entry, "nazwa_zdarzenia"));
     const cJSON *counties = json_member(entry, "teryt");
     const char *level = cJSON_GetStringValue(json_member(entry, "stopien"));
@@ -90,7 +90,7 @@ static bool read_warning_in_force(const cJSON *entry, time_t now, struct imgw_wa
         return false;
     }
 
-    /* keep it only if it covers Warsaw now */
+    /* check it covers Warsaw now */
     bool covers_warsaw = false;
     const cJSON *county;
     cJSON_ArrayForEach(county, counties) {
@@ -103,7 +103,7 @@ static bool read_warning_in_force(const cJSON *entry, time_t now, struct imgw_wa
         return false;
     }
 
-    /* name it in Chinese; a kind of warning with no label isn't shown */
+    /* name it in Chinese */
     for (size_t i = 0; i < sizeof WARNING_NAMES / sizeof WARNING_NAMES[0]; i++) {
         if (text_equal_folded(event, WARNING_NAMES[i].polish)) {
             *out = (struct imgw_warning){WARNING_NAMES[i].label, level[0] - '0', published};
@@ -114,12 +114,15 @@ static bool read_warning_in_force(const cJSON *entry, time_t now, struct imgw_wa
     return false;
 }
 
-static struct warnings warnings_parse(const char *json, time_t now) {
-    /* IMGW answers with a message while nothing is in force, and with a list otherwise */
-    cJSON *root = cJSON_Parse(json);
+struct warnings warnings_read(const struct http_response *response, time_t now) {
+    /* read the answer */
+    if (!http_ok(WARNINGS_URL, response)) {
+        return (struct warnings){};
+    }
+    cJSON *root = cJSON_Parse(response->body);
     struct warnings warnings = {.ok = true};
     if (!cJSON_IsArray(root)) {
-        warnings.ok = cJSON_IsString(json_member(root, "message"));
+        warnings.ok = cJSON_IsString(json_member(root, "message")); // a message means none
         if (!warnings.ok) {
             log_error("IMGW's warnings aren't a JSON array");
         }
@@ -127,7 +130,7 @@ static struct warnings warnings_parse(const char *json, time_t now) {
         return warnings;
     }
 
-    /* keep the top warning in force: the highest level, then the latest published */
+    /* keep the top warning */
     struct imgw_warning top = {};
     const cJSON *entry;
     cJSON_ArrayForEach(entry, root) {
@@ -144,11 +147,4 @@ static struct warnings warnings_parse(const char *json, time_t now) {
         snprintf(warnings.label, sizeof warnings.label, "%s", top.label);
     }
     return warnings;
-}
-
-struct warnings warnings_read(const struct http_response *response, time_t now) {
-    if (!http_ok(WARNINGS_URL, response)) {
-        return (struct warnings){};
-    }
-    return warnings_parse(response->body, now);
 }

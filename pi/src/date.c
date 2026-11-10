@@ -1,3 +1,4 @@
+/* the date block: the Warsaw date, lunar date, holidays and day counter */
 #include "date.h"
 
 #include <stddef.h>
@@ -83,7 +84,7 @@ static const char *const SOLAR_TERM_NAMES[SOLAR_TERMS_PER_YEAR] = {
 };
 
 static int day_number(struct civil_date date) {
-    int year = date.year - (date.month <= 2); // years start on 1 March, so 29 February ends one
+    int year = date.year - (date.month <= 2); // years run from 1 March, putting 29 February last
     int era = (year >= 0 ? year : year - 399) / 400;
     int year_of_era = year - era * 400;
     int day_of_year = (153 * ((date.month + 9) % 12) + 2) / 5 + date.day - 1;
@@ -138,10 +139,13 @@ static struct civil_date easter(int year) {
 }
 
 static const char *polish_holiday(struct civil_date date) {
+    /* fixed-date holidays */
     const char *fixed = name_on(POLISH_FIXED_HOLIDAYS, date.month, date.day);
     if (fixed != nullptr) {
         return fixed;
     }
+
+    /* Easter holidays */
     int days_after_easter = days_between(easter(date.year), date);
     for (const struct easter_holiday *holiday = POLISH_EASTER_HOLIDAYS; holiday->name != nullptr;
          holiday++) {
@@ -153,6 +157,7 @@ static const char *polish_holiday(struct civil_date date) {
 }
 
 static bool lunar_from_civil(struct civil_date date, struct lunar_date *out) {
+    /* find the lunar month */
     if (date.year < lunar_first_year || date.year > lunar_last_year) {
         return false;
     }
@@ -164,6 +169,8 @@ static bool lunar_from_civil(struct civil_date date, struct lunar_date *out) {
     if (month == nullptr) {
         return false;
     }
+
+    /* count the day */
     *out = (struct lunar_date){
             .month = month->month,
             .day = days_between(month->start, date) + 1,
@@ -187,6 +194,7 @@ static const char *solar_term_on(struct civil_date date) {
 }
 
 static const char *festival(struct civil_date date, struct lunar_date lunar, const char *term) {
+    /* lunar festivals and 除夕 */
     if (!lunar.leap) {
         const char *lunar_festival = name_on(LUNAR_FESTIVALS, lunar.month, lunar.day);
         if (lunar_festival != nullptr) {
@@ -199,9 +207,13 @@ static const char *festival(struct civil_date date, struct lunar_date lunar, con
             return "除夕";
         }
     }
+
+    /* 清明 and 冬至 */
     if (term != nullptr && (strcmp(term, "清明") == 0 || strcmp(term, "冬至") == 0)) {
         return term;
     }
+
+    /* Gregorian festivals */
     return name_on(GREGORIAN_FESTIVALS, date.month, date.day);
 }
 
@@ -213,7 +225,7 @@ static bool build_date_line(struct civil_date date, struct date_line *out) {
         return false;
     }
 
-    /* a festival fills the pill, else a Polish holiday or a solar term goes in front */
+    /* choose the pill or prefix */
     const char *holiday = polish_holiday(date);
     const char *term = solar_term_on(date);
     const char *pill = festival(date, lunar, term);
@@ -223,7 +235,7 @@ static bool build_date_line(struct civil_date date, struct date_line *out) {
     }
     *out = (struct date_line){.pill = pill, .prefix = prefix, .rest_day = holiday != nullptr};
 
-    /* a plain day says "农历" itself; with a pill or prefix it is just the lunar date */
+    /* write the lunar date */
     int length =
             snprintf(out->lunar, sizeof out->lunar, "%s%s%s%s",
                      pill == nullptr && prefix == nullptr ? "农历" : "", lunar.leap ? "闰" : "",
@@ -237,12 +249,15 @@ static bool build_date_line(struct civil_date date, struct date_line *out) {
 }
 
 struct date date_for(time_t now) {
+    /* find today's weekday */
     struct civil_date today = time_warsaw_date(now);
     int days_since_monday = (day_number(today) + THURSDAY_INDEX_FROM_MONDAY) %
                             DAYS_PER_WEEK; // 1970-01-01 was a Thursday
     if (days_since_monday < 0) {
         days_since_monday += DAYS_PER_WEEK;
     }
+
+    /* fill in the date */
     struct date date = {
             .today = today,
             .month_name = MONTH_NAMES[today.month - 1],

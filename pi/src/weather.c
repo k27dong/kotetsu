@@ -1,3 +1,4 @@
+/* the weather block: the forecast, air and warning, read, kept and shown */
 #include "weather.h"
 
 #include <stddef.h>
@@ -28,7 +29,6 @@ static constexpr int NO_WEATHER_CODE = -1;
 static constexpr int FIRST_PRECIPITATION_CODE = 51;
 static constexpr int THUNDERSTORM_CODE = 95;
 static constexpr double IMPLAUSIBLE_DEGREES = 100.0;
-// rain due from 20:00 isn't shown ahead; it shows once it starts
 static constexpr int PRECIPITATION_AHEAD_UNTIL_MINUTE = 20 * MINUTES_PER_HOUR;
 
 struct weather_word {
@@ -50,7 +50,7 @@ static const struct met_symbol MET_SYMBOLS[] = {
         {"lightrain", 61},
         {"rain", 63},
         {"heavyrain", 65},
-        {"lightsleet", 66}, // MET's sleet is rain and snow; 冻雨 is the word with the sleet icon
+        {"lightsleet", 66}, // sleet shows as freezing rain, with the sleet icon and 冻雨
         {"sleet", 66},
         {"heavysleet", 67},
         {"lightsnow", 71},
@@ -141,10 +141,12 @@ static bool shows_ahead(int code, time_t hour, time_t now) {
            time_warsaw_minute_of_day(hour) < PRECIPITATION_AHEAD_UNTIL_MINUTE;
 }
 
-[[nodiscard]] static bool weather_parse_open_meteo(const char *json, time_t now,
-                                                   struct weather_report *out) {
-    /* read the weather now and today's range */
-    cJSON *root = cJSON_Parse(json);
+struct forecast weather_read_open_meteo(const struct http_response *response, time_t now) {
+    /* read today's weather */
+    if (!http_ok(WEATHER_OPEN_METEO_URL, response)) {
+        return (struct forecast){};
+    }
+    cJSON *root = cJSON_Parse(response->body);
     const cJSON *current = json_member(root, "current");
     const cJSON *daily = json_member(root, "daily");
     const cJSON *hour_times = json_member(json_member(root, "hourly"), "time");
@@ -159,7 +161,7 @@ static bool shows_ahead(int code, time_t hour, time_t now) {
                   cJSON_IsArray(hour_times) && cJSON_IsArray(hour_codes) &&
                   cJSON_GetArraySize(hour_times) == cJSON_GetArraySize(hour_codes);
 
-    /* rain, snow or a storm due today before 20:00 shows instead, if its code is higher */
+    /* show precipitation due before 20:00 */
     for (int i = 0; parsed && i < cJSON_GetArraySize(hour_times); i++) {
         int64_t hour = 0;
         int code = 0;
@@ -170,27 +172,28 @@ static bool shows_ahead(int code, time_t hour, time_t now) {
         }
     }
     cJSON_Delete(root);
+
+    /* check the forecast */
     if (!parsed) {
         log_error("Open-Meteo's forecast lacks today's temperatures or weather codes");
-        return false;
+        return (struct forecast){};
     }
-    *out = report;
-    return true;
+    return (struct forecast){.ok = true, .report = report};
 }
 
 static int met_code(const cJSON *data) {
-    /* take the symbol for the coming hour; entries far ahead have none */
+    /* take the coming hour's symbol */
     const char *symbol = cJSON_GetStringValue(
             json_member(json_member(json_member(data, "next_1_hours"), "summary"), "symbol_code"));
-    if (symbol == nullptr) {
+    if (symbol == nullptr) { // entries far ahead have none
         return NO_WEATHER_CODE;
     }
 
-    /* match it without the _day, _night or _polartwilight MET adds to some */
+    /* match it to a code */
     if (strstr(symbol, "thunder") != nullptr) {
         return THUNDERSTORM_CODE;
     }
-    const size_t length = strcspn(symbol, "_");
+    const size_t length = strcspn(symbol, "_"); // without MET's _day, _night or _polartwilight
     for (size_t i = 0; i < sizeof MET_SYMBOLS / sizeof MET_SYMBOLS[0]; i++) {
         if (strlen(MET_SYMBOLS[i].name) == length &&
             strncmp(symbol, MET_SYMBOLS[i].name, length) == 0) {
@@ -201,10 +204,12 @@ static int met_code(const cJSON *data) {
     return NO_WEATHER_CODE;
 }
 
-[[nodiscard]] static bool weather_parse_met_norway(const char *json, time_t now,
-                                                   struct weather_report *out) {
-    /* go through the time series, which needs a time and a temperature in every entry */
-    cJSON *root = cJSON_Parse(json);
+struct forecast weather_read_met_norway(const struct http_response *response, time_t now) {
+    /* go through the time series */
+    if (!http_ok(WEATHER_MET_NORWAY_URL, response)) {
+        return (struct forecast){};
+    }
+    cJSON *root = cJSON_Parse(response->body);
     const cJSON *series = json_member(json_member(root, "properties"), "timeseries");
     const struct civil_date today = time_warsaw_date(now);
     struct weather_report report = {.fetched_at = now, .code = NO_WEATHER_CODE};
@@ -226,8 +231,8 @@ static int met_code(const cJSON *data) {
             break;
         }
 
-        /* the latest entry that has begun is the weather now; today's give the range */
-        const bool is_now = !have_now || entry_at <= now;
+        /* take today's weather */
+        const bool is_now = !have_now || entry_at <= now; // the latest entry that has begun
         const bool is_today = time_same_date(time_warsaw_date(entry_at), today);
         if (!is_now && !is_today) {
             continue;
@@ -249,46 +254,19 @@ static int met_code(const cJSON *data) {
     }
     cJSON_Delete(root);
 
-    /* rain, snow or a storm due today before 20:00 shows instead, if its code is higher */
+    /* show precipitation due before 20:00 */
     report.code = ahead_code > report.code ? ahead_code : report.code;
+
+    /* check the forecast */
     if (!parsed) {
         log_error("MET Norway's forecast doesn't parse");
-        return false;
+        return (struct forecast){};
     }
     if (!have_today || report.code == NO_WEATHER_CODE) {
         log_error("MET Norway has no weather for today");
-        return false;
+        return (struct forecast){};
     }
-    *out = report;
-    return true;
-}
-
-[[nodiscard]] static bool weather_parse_eaqi(const char *json, int *eaqi) {
-    cJSON *root = cJSON_Parse(json);
-    const cJSON *value = json_member(json_member(root, "current"), "european_aqi");
-    const bool parsed = cJSON_IsNumber(value) && value->valueint >= 0;
-    if (parsed) {
-        *eaqi = value->valueint;
-    } else {
-        log_error("Open-Meteo's air quality has no current european_aqi");
-    }
-    cJSON_Delete(root);
-    return parsed;
-}
-
-struct forecast weather_read_open_meteo(const struct http_response *response, time_t now) {
-    struct forecast forecast = {};
-    forecast.ok = http_ok(WEATHER_OPEN_METEO_URL, response) &&
-                  weather_parse_open_meteo(response->body, now, &forecast.report);
-    return forecast;
-}
-
-struct forecast weather_read_met_norway(const struct http_response *response, time_t now) {
-    struct forecast forecast = {};
-    forecast.ok = http_ok(WEATHER_MET_NORWAY_URL, response) &&
-                  weather_parse_met_norway(response->body, now, &forecast.report);
-    forecast.from_met = forecast.ok;
-    return forecast;
+    return (struct forecast){.ok = true, .from_met = true, .report = report};
 }
 
 bool weather_wants_met_norway(const struct weather_state *state,
@@ -302,23 +280,33 @@ struct weather_state weather_update(struct weather_state previous, const struct 
                                     const struct http_response *warnings, time_t now) {
     /* always read air and warnings */
     int eaqi = EAQI_UNKNOWN;
-    const bool air_ok =
-            http_ok(WEATHER_AIR_QUALITY_URL, air) && weather_parse_eaqi(air->body, &eaqi);
+    if (http_ok(WEATHER_AIR_QUALITY_URL, air)) {
+        cJSON *root = cJSON_Parse(air->body);
+        const cJSON *value = json_member(json_member(root, "current"), "european_aqi");
+        if (cJSON_IsNumber(value) && value->valueint >= 0) {
+            eaqi = value->valueint;
+        } else {
+            log_error("Open-Meteo's air quality has no current european_aqi");
+        }
+        cJSON_Delete(root);
+    }
     const struct warnings in_force = warnings_read(warnings, now);
 
-    /* count Open-Meteo's failures */
+    /* schedule the next fetch */
     struct weather_state state = previous;
     state.next_fetch = now + FETCH_PERIOD_SECONDS;
+
+    /* count Open-Meteo's failures */
     state.open_meteo_failures =
             forecast->ok && !forecast->from_met ? 0 : previous.open_meteo_failures + 1;
+
+    /* take the new report */
     if (!forecast->ok) {
         return state; // the last report stays, with its air and warning
     }
-
-    /* take the new report */
     state.have_report = true;
     state.report = forecast->report;
-    state.eaqi = air_ok ? eaqi : EAQI_UNKNOWN;
+    state.eaqi = eaqi;
     state.have_warning = in_force.ok && in_force.any;
     memcpy(state.warning, in_force.label, sizeof state.warning);
     return state;
@@ -329,7 +317,7 @@ static const char *sign_of(int degrees) {
 }
 
 struct weather_view weather_view(const struct weather_state *state, time_t now) {
-    /* with no report, or one 12 hours old, the weather is unavailable */
+    /* check the report is usable */
     const struct weather_view unavailable = {
             .icon = WEATHER_ICON_OFFLINE,
             .temperature = "—",
@@ -347,12 +335,12 @@ struct weather_view weather_view(const struct weather_state *state, time_t now) 
         return unavailable;
     }
 
-    /* show the icon and the temperature now */
+    /* show icon and temperature */
     struct weather_view view = {.icon = word.icon};
     snprintf(view.temperature, sizeof view.temperature, "%s%d" DEGREE_SIGN, sign_of(report->now_c),
              abs(report->now_c));
 
-    /* once the report is 2 hours old, say when it came instead of the range and the word */
+    /* show a stale report's time */
     if (age >= STALE_AFTER_SECONDS) {
         const int minute = time_warsaw_minute_of_day(report->fetched_at);
         snprintf(view.line, sizeof view.line, "%02d:%02d更新", minute / MINUTES_PER_HOUR,
@@ -361,9 +349,11 @@ struct weather_view weather_view(const struct weather_state *state, time_t now) 
         return view;
     }
 
-    /* show today's range, and a warning, poor air or the word */
+    /* show today's range */
     snprintf(view.range, sizeof view.range, "%s%d~%s%d" DEGREE_SIGN, sign_of(report->low_c),
              abs(report->low_c), sign_of(report->high_c), abs(report->high_c));
+
+    /* show a badge or word */
     if (state->have_warning) {
         snprintf(view.line, sizeof view.line, "%s", state->warning);
         view.line_kind = WEATHER_LINE_BADGE;
