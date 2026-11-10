@@ -7,7 +7,8 @@
 
 struct drawing;
 
-struct drawing *draw_open(const char *font_dir); // nullptr when the fonts can't be loaded
+// nullptr when the fonts can't be loaded
+struct drawing *draw_open(const char *font_dir);
 void draw_close(struct drawing *drawing);
 
 struct draw_input {
