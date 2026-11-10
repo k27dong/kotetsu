@@ -7,7 +7,7 @@
                               const struct weather_state *weather);
 
 struct saved_state {
-    bool ok;          // false keeps the new wall from screen_new_wall()
+    bool ok;          // when false, wall is screen_new_wall()
     struct wall wall; // known is always false after a restart
     bool have_weather;
     struct weather_report weather;
