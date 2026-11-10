@@ -97,4 +97,7 @@ help:
 # A command that fails deletes the half-written file it leaves behind.
 .DELETE_ON_ERROR:
 
+# Test objects stay after make test, so the next run compiles nothing.
+.SECONDARY:
+
 -include $(OBJ:.o=.d) build/main.d $(TESTS:tests/%.c=build/tests/%.d)
